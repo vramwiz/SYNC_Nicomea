@@ -111,6 +111,7 @@
         <DCCReference Include="Source\Plugin\Filter\PSD\SYNC_LipSync_SettingsForm.pas">
             <Form>FormLipSyncSettings</Form>
         </DCCReference>
+        <DCCReference Include="Source\Common\Nicovideo\SYNC_Nicomea_History.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Nicomea_SettingsForm.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Nicomea_FilterPlugin.pas"/>
         <DCCReference Include="Source\Common\Project\SYNC_LipSync_Project.pas"/>

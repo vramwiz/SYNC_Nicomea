@@ -38,6 +38,7 @@ uses
   SYNC_LipSync_Presentation in 'Source\Common\Motion\SYNC_LipSync_Presentation.pas',
   SYNC_MusicStudio_MotionData in 'Source\Common\Motion\SYNC_MusicStudio_MotionData.pas',
   SYNC_LipSync_ExpressionForm in 'Source\Plugin\Filter\PSD\SYNC_LipSync_ExpressionForm.pas',
+  SYNC_Nicomea_History in 'Source\Common\Nicovideo\SYNC_Nicomea_History.pas',
   SYNC_Nicomea_SettingsForm in 'Source\Plugin\Filter\SYNC_Nicomea_SettingsForm.pas',
   SYNC_Nicomea_FilterPlugin in 'Source\Plugin\Filter\SYNC_Nicomea_FilterPlugin.pas';
 

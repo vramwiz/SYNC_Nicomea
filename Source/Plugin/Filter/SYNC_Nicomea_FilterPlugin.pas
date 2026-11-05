@@ -216,7 +216,7 @@ begin
   if not PluginTableInitialized then
   begin
     SetupPluginTable(FILTER_FLAG_VIDEO or FILTER_FLAG_FILTER or FILTER_FLAG_USERDATA,
-      EFFECT_NAME, 'SYNC', 'AviUtl2の背景プレビューとニコメアの設定',
+      EFFECT_NAME, 'SYNC', 'ニコニコ動画の広告・ギフト情報の表示設定',
       NicomeaProcVideo, nil);
     AddButton(SettingsButton, '設定', SettingsButtonCallback);
     AddString(JSONDataItem, JSON_ITEM_NAME, '{}');
