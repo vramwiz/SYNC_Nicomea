@@ -8,9 +8,11 @@ uses
 
 type
   TNicomeaStyle = (nsHorizontal, nsVertical, nsPages);
+  TNicomeaEffect = (neNone, neFade);
 
   TNicomeaLayout = record
     Style: TNicomeaStyle;
+    Effect: TNicomeaEffect;
     Area: TRect;
     FontName: string;
     FontSize: Integer;
@@ -139,6 +141,10 @@ begin
   if not (Value is TJSONObject) then Exit;
   Obj := TJSONObject(Value);
   Result.ResetStyle(TNicomeaStyle(SettingInt(Obj, 'style', Ord(Result.Style), 0, 2)), Width, Height);
+  // 旧値3はフェード併用。旧値2の浮き上がり単独は既定値の「なし」で読む。
+  case SettingInt(Obj, 'effect', Ord(neNone), 0, MaxInt) of
+    Ord(neFade), 3: Result.Effect := neFade;
+  end;
   X := SettingInt(Obj, 'left', Result.Area.Left, -16384, 16384);
   Y := SettingInt(Obj, 'top', Result.Area.Top, -16384, 16384);
   W := SettingInt(Obj, 'width', Result.Area.Width, 16, 8192);
@@ -175,6 +181,7 @@ begin
   Settings.RemovePair('layout').Free;
   Settings.AddPair('layout', Obj);
   Obj.AddPair('style', Ord(Style));
+  Obj.AddPair('effect', Ord(Effect));
   Obj.AddPair('left', Area.Left);
   Obj.AddPair('top', Area.Top);
   Obj.AddPair('width', Area.Width);

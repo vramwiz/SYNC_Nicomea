@@ -507,8 +507,8 @@ end;
 
 procedure TNicomeaVideoSession.Render(Video: PFILTER_PROC_VIDEO);
 var
-  Width, Height, DesignWidth, DesignHeight, Opacity: Integer;
-  X, Y, Scale, Progress: Double;
+  Width, Height, DesignWidth, DesignHeight, Opacity, FadeOpacity: Integer;
+  X, Y, Scale, Progress, ProgressStep: Double;
   Bounds, Clipped: TRect;
   InputReady: Boolean;
   Image: TGPBitmap;
@@ -545,10 +545,19 @@ begin
   Bounds := NicomeaAreaRect(FLayout.Area, Width, Height, X, Y, Scale);
   if not System.Types.IntersectRect(Clipped, Bounds, Rect(0, 0, Width, Height)) then Exit;
   if Video^.Object_^.FrameTotal > 1 then
-    Progress := Video^.Object_^.Frame / (Video^.Object_^.FrameTotal - 1)
-  else Progress := 0.5;
-  Image := FRenderer.RenderSurface(Bounds, Clipped, Progress);
+  begin
+    ProgressStep := 1 / (Video^.Object_^.FrameTotal - 1);
+    Progress := Video^.Object_^.Frame / (Video^.Object_^.FrameTotal - 1);
+  end
+  else
+  begin
+    Progress := 0.5;
+    ProgressStep := 1;
+  end;
+  Image := FRenderer.RenderSurface(Bounds, Clipped, Progress, ProgressStep, FadeOpacity);
   if Image = nil then Exit;
+  Opacity := (Opacity * FadeOpacity + 127) div 255;
+  if Opacity = 0 then Exit;
   if not InputReady then
   begin
     SetLength(FInput, NativeInt(Width) * Height);

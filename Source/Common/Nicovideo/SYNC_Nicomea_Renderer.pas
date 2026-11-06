@@ -31,16 +31,22 @@ type
     function BuildGlyph(const Cell: TCell): TGPBitmap;
     function Glyph(Index: Integer): TGPBitmap;
     function FirstVisible(Threshold, Page: Integer): Integer;
+    procedure DrawCells(Target: TGPGraphics; const Destination: TRect; Progress: Double;
+      Page: Integer);
   public
     constructor Create;
     destructor Destroy; override;
     // 再配置する。フレーム描画からは呼ばず、データや設定が変わったときだけ呼ぶ。
     procedure Prepare(const Settings: TNicomeaLayout;
       const Supporters: TArray<TNicomeaSupporter>; Kind: TNicomeaHistoryKind);
-    // Destinationは表示領域の画面座標。Progressはオブジェクト内の0～1。
-    procedure Draw(Target: TGPGraphics; const Destination: TRect; Progress: Double);
-    // クリップ済み範囲へ描画する。返した画像は次の描画までレンダラーが所有する。
-    function RenderSurface(const Destination, Clipped: TRect; Progress: Double): TGPBitmap;
+    // 装飾見本の最初のページを静止表示する。
+    procedure DrawSample(Target: TGPGraphics; const Destination: TRect);
+    procedure DrawPreview(Target: TGPGraphics; const Destination, Clipped: TRect;
+      Progress, ProgressStep: Double);
+    // Progressはオブジェクト内の0～1。ProgressStepは1フレームの進行量。
+    // 画像は次の描画まで保持し、ページ全体の不透明度は合成側で適用する。
+    function RenderSurface(const Destination, Clipped: TRect; Progress, ProgressStep: Double;
+      out Opacity: Integer): TGPBitmap;
     function HasContent: Boolean;
   end;
 
@@ -59,6 +65,7 @@ const
   MAX_TEXT_UNITS = 4096;
   CELL_PADDING = 4;
   SEPARATOR_CACHE_INDEX = -1;
+  PAGE_FADE_FRACTION = 0.15;
 
 var
   GraphicsToken: ULONG_PTR;
@@ -94,6 +101,90 @@ begin
   if Units >= Length(Text) then Exit(Text);
   if (Units > 0) and Text[Units].IsHighSurrogate then Dec(Units);
   Result := Copy(Text, 1, Units);
+end;
+
+function SmoothStep(Value: Double): Double;
+begin
+  Value := EnsureRange(Value, 0.0, 1.0);
+  Result := Value * Value * (3 - 2 * Value);
+end;
+
+function EdgeFadeDistance(Size: Integer): Double;
+begin
+  Result := EnsureRange(Size * 0.15, 1.0, 96.0);
+end;
+
+procedure ApplyScrollEdgeFade(Image: TGPBitmap; const Destination: TRect;
+  Horizontal: Boolean; FadeWidth: Integer);
+var
+  ImageBounds: TRect;
+
+  procedure FadeBand(const Band: TRect);
+  var
+    Clipped: TRect;
+    Data: TBitmapData;
+    Weights: TBytes;
+    X, Y, I, Offset, Last, Distance, Factor: Integer;
+    Pixel: PByte;
+  begin
+    if not System.Types.IntersectRect(Clipped, Band, ImageBounds) then Exit;
+    if Horizontal then
+    begin
+      SetLength(Weights, Clipped.Width);
+      Offset := Clipped.Left - Destination.Left;
+      Last := Destination.Width - 1;
+    end
+    else
+    begin
+      SetLength(Weights, Clipped.Height);
+      Offset := Clipped.Top - Destination.Top;
+      Last := Destination.Height - 1;
+    end;
+    for I := 0 to High(Weights) do
+    begin
+      Distance := Min(Offset + I, Last - Offset - I);
+      Weights[I] := Round(255 * SmoothStep(Distance / FadeWidth));
+    end;
+    if Image.LockBits(MakeRect(Clipped.Left, Clipped.Top, Clipped.Width, Clipped.Height),
+      ImageLockModeRead or ImageLockModeWrite, PixelFormat32bppPARGB, Data) <> Ok then Exit;
+    try
+      for Y := 0 to Clipped.Height - 1 do
+      begin
+        Pixel := PByte(NativeInt(Data.Scan0) + NativeInt(Y) * Data.Stride);
+        Factor := 255;
+        if not Horizontal then Factor := Weights[Y];
+        for X := 0 to Clipped.Width - 1 do
+        begin
+          if Pixel[3] <> 0 then
+          begin
+            if Horizontal then Factor := Weights[X];
+            // 乗算済みRGBとアルファを揃えて減衰させる。
+            Pixel[0] := (Pixel[0] * Factor + 127) div 255;
+            Pixel[1] := (Pixel[1] * Factor + 127) div 255;
+            Pixel[2] := (Pixel[2] * Factor + 127) div 255;
+            Pixel[3] := (Pixel[3] * Factor + 127) div 255;
+          end;
+          Inc(Pixel, 4);
+        end;
+      end;
+    finally
+      Image.UnlockBits(Data);
+    end;
+  end;
+
+begin
+  if FadeWidth <= 0 then Exit;
+  ImageBounds := Rect(0, 0, Integer(Image.GetWidth), Integer(Image.GetHeight));
+  if Horizontal then
+  begin
+    FadeBand(Rect(Destination.Left, Destination.Top, Destination.Left + FadeWidth, Destination.Bottom));
+    FadeBand(Rect(Destination.Right - FadeWidth, Destination.Top, Destination.Right, Destination.Bottom));
+  end
+  else
+  begin
+    FadeBand(Rect(Destination.Left, Destination.Top, Destination.Right, Destination.Top + FadeWidth));
+    FadeBand(Rect(Destination.Left, Destination.Bottom - FadeWidth, Destination.Right, Destination.Bottom));
+  end;
 end;
 
 procedure BlurDecoration(Image: TGPBitmap; Width, Height, Radius: Integer; HasColor: Boolean);
@@ -513,26 +604,23 @@ begin
   end;
 end;
 
-procedure TNicomeaRenderer.Draw(Target: TGPGraphics; const Destination: TRect; Progress: Double);
+procedure TNicomeaRenderer.DrawCells(Target: TGPGraphics; const Destination: TRect;
+  Progress: Double; Page: Integer);
 var
   State: GraphicsState;
-  I, W, H, DX, DY, Page, First: Integer;
-  X, Y: Integer;
+  I, W, H, DX, DY, First, X, Y: Integer;
   Image: TGPBitmap;
 begin
   if Destination.IsEmpty or not HasContent then Exit;
-  Progress := EnsureRange(Progress, 0.0, 1.0);
   W := FSettings.Area.Width;
   H := FSettings.Area.Height;
   DX := 0;
   DY := 0;
-  Page := 0;
   case FSettings.Style of
     nsHorizontal: DX := Round(W - Progress * (W + FSpan));
     nsVertical: DY := Round(H - Progress * (H + FSpan));
     nsPages:
       begin
-        Page := Min(FPageCount - 1, Floor(Progress * FPageCount));
         I := FirstVisible(0, Page + 1) - 1;
         DY := Max(0, (H - FCells[I].Y - FRowHeight) div 2);
       end;
@@ -567,12 +655,68 @@ begin
   end;
 end;
 
-function TNicomeaRenderer.RenderSurface(const Destination, Clipped: TRect; Progress: Double): TGPBitmap;
+procedure TNicomeaRenderer.DrawSample(Target: TGPGraphics; const Destination: TRect);
+begin
+  DrawCells(Target, Destination, 0, 0);
+end;
+
+procedure TNicomeaRenderer.DrawPreview(Target: TGPGraphics; const Destination, Clipped: TRect;
+  Progress, ProgressStep: Double);
+var
+  Image: TGPBitmap;
+  Opacity, I: Integer;
+  Matrix: TColorMatrix;
+  Attributes: TGPImageAttributes;
+begin
+  Image := RenderSurface(Destination, Clipped, Progress, ProgressStep, Opacity);
+  if Image = nil then Exit;
+  if Opacity = 255 then
+  begin
+    Target.DrawImage(Image, Clipped.Left, Clipped.Top, Clipped.Width, Clipped.Height);
+    Exit;
+  end;
+  Matrix := Default(TColorMatrix);
+  for I := 0 to 4 do Matrix[I, I] := 1;
+  Matrix[3, 3] := Opacity / 255;
+  Attributes := TGPImageAttributes.Create;
+  try
+    Attributes.SetColorMatrix(Matrix);
+    Target.DrawImage(Image, MakeRect(Clipped.Left, Clipped.Top, Clipped.Width, Clipped.Height),
+      0, 0, Clipped.Width, Clipped.Height, UnitPixel, Attributes);
+  finally
+    Attributes.Free;
+  end;
+end;
+
+function TNicomeaRenderer.RenderSurface(const Destination, Clipped: TRect;
+  Progress, ProgressStep: Double; out Opacity: Integer): TGPBitmap;
 var
   Graphics: TGPGraphics;
   Local: TRect;
+  Page, FadeWidth: Integer;
+  Phase, HalfStep: Double;
+  FadeEnabled: Boolean;
 begin
-  if Clipped.IsEmpty then Exit(nil);
+  Opacity := 255;
+  if Destination.IsEmpty or Clipped.IsEmpty or not HasContent then Exit(nil);
+  Progress := EnsureRange(Progress, 0.0, 1.0);
+  Page := 0;
+  FadeEnabled := FSettings.Effect = neFade;
+  if FSettings.Style = nsPages then
+  begin
+    Phase := Progress * FPageCount;
+    Page := Min(FPageCount - 1, Floor(Phase));
+    if FadeEnabled then
+    begin
+      Phase := Phase - Page;
+      HalfStep := Min(0.5, ProgressStep * FPageCount * 0.5);
+      // 短いページのフレームが切り替え境界だけに重なっても文字を表示する。
+      if HalfStep >= PAGE_FADE_FRACTION * 0.5 then
+        Phase := EnsureRange(Phase, HalfStep, 1 - HalfStep);
+      Opacity := Round(255 * SmoothStep(Min(Phase, 1 - Phase) / PAGE_FADE_FRACTION));
+      if Opacity = 0 then Exit(nil);
+    end;
+  end;
   if (FSurface = nil) or (Integer(FSurface.GetWidth) <> Clipped.Width) or
     (Integer(FSurface.GetHeight) <> Clipped.Height) then
   begin
@@ -584,10 +728,25 @@ begin
   Graphics := TGPGraphics.Create(FSurface);
   try
     Graphics.Clear(0);
-    Draw(Graphics, Local, Progress);
+    DrawCells(Graphics, Local, Progress, Page);
   finally
     Graphics.Free;
   end;
+  if FadeEnabled then
+    case FSettings.Style of
+      nsHorizontal:
+        begin
+          FadeWidth := Min((Local.Width - 1) div 2, Max(1,
+            Round(EdgeFadeDistance(FSettings.Area.Width) * Local.Width / FSettings.Area.Width)));
+          ApplyScrollEdgeFade(FSurface, Local, True, FadeWidth);
+        end;
+      nsVertical:
+        begin
+          FadeWidth := Min((Local.Height - 1) div 2, Max(1,
+            Round(EdgeFadeDistance(FSettings.Area.Height) * Local.Height / FSettings.Area.Height)));
+          ApplyScrollEdgeFade(FSurface, Local, False, FadeWidth);
+        end;
+    end;
   Result := FSurface;
 end;
 
