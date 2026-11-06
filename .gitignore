@@ -10,3 +10,7 @@ __history/
 *.tds 
 *.dsk 
 .DS_Store 
+
+!/setup/make_release_zip.bat
+/setup/SYNC_Nicomea.zip
+/setup/.release-*.tmp
