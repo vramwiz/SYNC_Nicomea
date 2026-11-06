@@ -93,43 +93,15 @@
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerHueBar.pas"/>
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerSVArea.pas"/>
         <DCCReference Include="Source\Lib\FilterTable\PluginFilterTable.pas"/>
-        <DCCReference Include="Source\Common\Audio\SYNC_MusicStudio_AudioWaveform.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Model\SYNC_MusicStudio_ArtDocument.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Model\SYNC_MusicStudio_ArtLayerName.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Model\SYNC_MusicStudio_ArtPsd.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Model\SYNC_MusicStudio_ArtPsdOrigin.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Rules\SYNC_MusicStudio_DrumPsdRules.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Rules\SYNC_MusicStudio_InstrumentRules.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Rules\SYNC_MusicStudio_LayerScale.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\Rules\SYNC_MusicStudio_PsdLayerConfig.pas"/>
-        <DCCReference Include="Source\Common\Render\Layers\SYNC_MusicStudio_PsdLayers.pas"/>
         <DCCReference Include="Source\Common\Render\Host\SYNC_MusicStudio_FramebufferCapture.pas"/>
         <DCCReference Include="Source\Common\Render\Host\SYNC_MusicStudio_HostBackground.pas"/>
-        <DCCReference Include="Source\Common\Singing\SYNC_MusicStudio_SingingData.pas"/>
-        <DCCReference Include="Source\Common\Singing\SYNC_MusicStudio_SingingFormats.pas"/>
-        <DCCReference Include="Source\Common\Singing\SYNC_MusicStudio_Vowels.pas"/>
         <DCCReference Include="Source\Common\Render\Placement\SYNC_MusicStudio_PsdTransform.pas"/>
         <DCCReference Include="Source\Plugin\Filter\Preview\SYNC_LipSync_PreviewViewport.pas"/>
-        <DCCReference Include="Source\Common\Render\Scene\SYNC_LipSync_Scene.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\PSD\SYNC_LipSync_SettingsForm.pas">
-            <Form>FormLipSyncSettings</Form>
-        </DCCReference>
         <DCCReference Include="Source\Common\Nicovideo\SYNC_Nicomea_History.pas"/>
         <DCCReference Include="Source\Common\Nicovideo\SYNC_Nicomea_Layout.pas"/>
         <DCCReference Include="Source\Common\Nicovideo\SYNC_Nicomea_Renderer.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Nicomea_SettingsForm.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Nicomea_FilterPlugin.pas"/>
-        <DCCReference Include="Source\Common\Project\SYNC_LipSync_Project.pas"/>
-        <DCCReference Include="Source\Common\Timing\SYNC_MusicStudio_BeatData.pas"/>
-        <DCCReference Include="Source\Common\Timing\SYNC_MusicStudio_MeterMap.pas"/>
-        <DCCReference Include="Source\Common\Audio\SYNC_MusicStudio_PreviewPlayback.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\Timeline\SYNC_LipSync_TimelineView.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\Arrangement\SYNC_LipSync_ArrangementForm.pas"/>
-        <DCCReference Include="Source\Common\Motion\SYNC_LipSync_Presentation.pas"/>
-        <DCCReference Include="Source\Common\Motion\SYNC_MusicStudio_MotionData.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\PSD\SYNC_LipSync_ExpressionForm.pas"/>
-        <DCCReference Include="Source\Common\Project\SYNC_LipSync_EditHistory.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\Timeline\SYNC_LipSync_TempoEditor.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
