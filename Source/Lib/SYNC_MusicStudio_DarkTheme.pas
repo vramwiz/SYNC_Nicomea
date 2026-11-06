@@ -7,12 +7,24 @@ interface
 uses
   System.Types,
   System.UITypes,
+  Winapi.Messages,
+  Winapi.Windows,
   Vcl.ComCtrls,
   Vcl.Controls,
   Vcl.ExtCtrls,
   Vcl.Forms,
   Vcl.Graphics,
   Vcl.StdCtrls;
+
+type
+  // ネイティブのチェック動作を使い、チェック欄と文字を暗色で描画する。
+  TSyncMusicStudioDarkCheckBox = class(TCheckBox)
+  private
+    procedure PaintCheck(DC: HDC);
+    procedure WMPaint(var Msg: TWMPaint); message WM_PAINT;
+  protected
+    procedure WndProc(var Msg: TMessage); override;
+  end;
 
 const
   SYNC_MUSIC_STUDIO_DARK_BACKGROUND_COLOR = TColor($00202020);
@@ -47,13 +59,95 @@ procedure DrawSyncMusicStudioDarkComboBoxItem(ComboBox: TComboBox;
 implementation
 
 uses
+  System.Math,
   Winapi.Dwmapi,
-  Winapi.Windows,
   Winapi.UxTheme;
 
 const
   DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
   DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+
+procedure TSyncMusicStudioDarkCheckBox.PaintCheck(DC: HDC);
+var
+  Surface: TCanvas;
+  Bounds, Box, TextBounds: TRect;
+  Size, Top, SavedDC: Integer;
+begin
+  SavedDC := SaveDC(DC);
+  if SavedDC = 0 then Exit;
+  Surface := TCanvas.Create;
+  try
+    Surface.Handle := DC;
+    Surface.Font.Assign(Font);
+    Surface.Font.Color := SYNC_MUSIC_STUDIO_DARK_TEXT_COLOR;
+    if not Enabled then Surface.Font.Color := $009C9C9C;
+    Bounds := ClientRect;
+    Surface.Brush.Color := SYNC_MUSIC_STUDIO_DARK_PANEL_COLOR;
+    Surface.FillRect(Bounds);
+    Size := MulDiv(14, CurrentPPI, 96);
+    Top := (Bounds.Height - Size) div 2;
+    Box := Rect(1, Top, 1 + Size, Top + Size);
+    Surface.Brush.Color := SYNC_MUSIC_STUDIO_DARK_CONTROL_COLOR;
+    Surface.Pen.Color := $00848484;
+    if Checked then Surface.Brush.Color := $00AE733C;
+    Surface.Rectangle(Box);
+    if Checked then
+    begin
+      Surface.Pen.Color := clWhite;
+      Surface.Pen.Width := Max(1, MulDiv(2, CurrentPPI, 96));
+      Surface.MoveTo(Box.Left + Size div 5, Box.Top + Size div 2);
+      Surface.LineTo(Box.Left + Size * 2 div 5, Box.Top + Size * 3 div 4);
+      Surface.LineTo(Box.Right - Size div 6, Box.Top + Size div 4);
+    end;
+    TextBounds := Bounds;
+    TextBounds.Left := Box.Right + MulDiv(6, CurrentPPI, 96);
+    SelectObject(DC, Surface.Font.Handle);
+    SetTextColor(DC, ColorToRGB(Surface.Font.Color));
+    SetBkMode(DC, TRANSPARENT);
+    DrawText(DC, PChar(Caption), Length(Caption), TextBounds,
+      DT_SINGLELINE or DT_VCENTER or DT_NOPREFIX);
+    if Focused then
+    begin
+      TextBounds.Right := Min(TextBounds.Right, TextBounds.Left + Surface.TextWidth(Caption) + 2);
+      DrawFocusRect(DC, TextBounds);
+    end;
+  finally
+    Surface.Handle := 0;
+    Surface.Free;
+    RestoreDC(DC, SavedDC);
+  end;
+end;
+
+procedure TSyncMusicStudioDarkCheckBox.WMPaint(var Msg: TWMPaint);
+var
+  Paint: TPaintStruct;
+  DC: HDC;
+begin
+  DC := Msg.DC;
+  if DC <> 0 then
+    PaintCheck(DC)
+  else
+  begin
+    DC := BeginPaint(Handle, Paint);
+    try
+      PaintCheck(DC);
+    finally
+      EndPaint(Handle, Paint);
+    end;
+  end;
+end;
+
+procedure TSyncMusicStudioDarkCheckBox.WndProc(var Msg: TMessage);
+begin
+  if Msg.Msg = WM_PRINTCLIENT then
+  begin
+    PaintCheck(HDC(Msg.WParam));
+    Exit;
+  end;
+  inherited;
+  if Msg.Msg in [WM_SETFOCUS, WM_KILLFOCUS, WM_ENABLE] then Invalidate;
+  if Msg.Msg = BM_SETCHECK then Invalidate;
+end;
 
 procedure EnableDarkTitleBar(Form: TForm);
 var

@@ -1,87 +1,118 @@
 ﻿unit SYNC_Nicomea_SettingsForm;
 
-// 動画IDの入力、履歴取得の進行表示、AviUtl2の背景プレビューを扱う。
+// AviUtl2の背景プレビューを流用し、相対領域と文字装飾を編集中だけ変更する。
 interface
 
 uses
-  System.Classes, System.JSON, System.Types, Vcl.Controls, Vcl.ExtCtrls,
-  Vcl.Forms, Vcl.Graphics, Vcl.Grids, Vcl.StdCtrls, SYNC_LipSync_PreviewViewport,
-  SYNC_MusicStudio_HostBackground, SYNC_Nicomea_History;
+  System.Classes, System.Types, Vcl.ComCtrls, Vcl.Controls, Vcl.ExtCtrls, Vcl.Forms, Vcl.Graphics,
+  Vcl.StdCtrls, SYNC_LipSync_PreviewViewport, SYNC_MusicStudio_HostBackground,
+  SYNC_Nicomea_History, SYNC_Nicomea_Layout, SYNC_Nicomea_Renderer,
+  ColorPickerHueBar, ColorPickerSVArea;
 
 type
-  TNicomeaSaveJSON = procedure(const JSON: string) of object;
-  TNicomeaPage = TNicomeaHistoryKind;
-
   TFormNicomeaSettings = class(TForm)
+  private type
+    TDragMode = (dmNone, dmPan, dmMove, dmResize, dmOutline, dmShadow, dmBlur);
+    TDecorationMode = dmOutline..dmBlur;
+    TColorTarget = (ctText, ctOutline, ctShadow);
   private
-    FPreview: TPaintBox;
-    FVideoID: TEdit;
-    FFetchButton, FSaveButton: TButton;
-    FLog: TMemo;
-    FRequest: TNicomeaHistoryRequest;
-    FCloseAfterFetch: Boolean;
-    FHistoryGrids: array[TNicomeaPage] of TStringGrid;
-    FHistoryStatus: array[TNicomeaPage] of TLabel;
-    FPageButtons: array[TNicomeaPage] of TButton;
-    FPages: array[TNicomeaPage] of TPanel;
-    FStatus: TLabel;
+    FPreview, FDecorationSample: TPaintBox;
+    FBackground, FBuffer, FDecorationBuffer: TBitmap;
     FTimer: TTimer;
-    FBackground: TBitmap;
-    FBuffer: TBitmap;
     FReadBackground: TMusicStudioReadBackground;
-    FSaveJSON: TNicomeaSaveJSON;
-    FSettings: TJSONObject;
-    FOriginalVideoID: string;
     FSerial: UInt64;
     FFrameWidth, FFrameHeight: Integer;
     FViewport: TLipSyncPreviewViewport;
-    FDragPoint: TPoint;
-    procedure BuildPage(Page: TNicomeaPage; Parent: TWinControl;
-      const Title: string; const Columns: array of string;
-      const ColumnWidths: array of Integer);
-    procedure FetchClick(Sender: TObject);
-    procedure SetFetchBusy(Busy: Boolean);
-    procedure TimerTick(Sender: TObject);
-    procedure AppendLog(const Message: string);
-    procedure UpdateHistory(Page: TNicomeaPage; const History: TNicomeaHistory);
-    procedure CMDialogKey(var Message: TCMDialogKey); message CM_DIALOGKEY;
-    procedure SelectPage(Page: TNicomeaPage);
-    procedure PageClick(Sender: TObject);
+    FRenderer, FDecorationRenderer: TNicomeaRenderer;
+    FLayout: TNicomeaLayout;
+    FSupporters: TArray<TNicomeaSupporter>;
+    FSupportersByKind: TNicomeaSupportersByKind;
+    FKind: TNicomeaHistoryKind;
+    FStyle, FFont, FKindSelector: TComboBox;
+    FFormat, FSeparator: TEdit;
+    FSize, FSpacing, FLineGap, FMaxChars: TTrackBar;
+    FBold, FItalic, FOutline, FShadow: TButton;
+    FColorButtons: array[TColorTarget] of TButton;
+    FHueBar: TColorPickerHueBar;
+    FColorArea: TColorPickerSVArea;
+    FColorSwatch: TPanel;
+    FColorTarget: TColorTarget;
+    FSingleColumn: TCheckBox;
+    FHint: TLabel;
+    FPreviewSource: string;
+    FUpdating, FDirty, FDecorationDirty, FPlaying, FSelected: Boolean;
+    FDuration, FPausedProgress: Double;
+    FPlayStart: UInt64;
+    FDragMode: TDragMode;
+    FDragControl: TControl;
+    FDragButton: TMouseButton;
+    FDragMoved: Boolean;
+    FDragGrip: Integer;
+    FDragStart, FDragLast: TPoint;
+    FDragLayout: TNicomeaLayout;
+    procedure BuildControls(Panel: TPanel);
+    procedure SyncControls;
+    procedure SyncFormatControls;
+    procedure BuildFormatMenu;
+    procedure InsertFormatToken(Sender: TObject);
+    procedure KindChanged(Sender: TObject);
+    procedure FormatChanged(Sender: TObject);
+    procedure ReadControls(Sender: TObject);
+    procedure StyleChanged(Sender: TObject);
+    procedure ResetStyle(Sender: TObject);
+    procedure ToggleDecoration(Sender: TObject);
+    function TargetColor: TColor;
+    procedure SyncColorPicker;
+    procedure SelectColorTarget(Sender: TObject);
+    procedure HueChanged(Sender: TObject);
+    procedure ColorChanged(Sender: TObject);
+    procedure UpdatePreviewCaption;
+    procedure TogglePlayback;
+    procedure DrawCombo(Control: TWinControl; Index: Integer; Bounds: TRect; State: TOwnerDrawState);
+    function Progress: Double;
     function FitRect: TRect;
-    procedure RefreshBackground(Sender: TObject);
+    function PreviewArea(const Frame: TRect): TRect;
+    function DecorationHandle(Mode: TDecorationMode): TRect;
+    function DecorationEnabled(Mode: TDecorationMode): Boolean;
+    function DecorationAt(const CursorPoint: TPoint): TDragMode;
+    procedure InvalidateDecorationSample;
+    procedure PaintDecorationSample(Sender: TObject);
+    procedure RefreshBackground;
+    procedure PreviewTick(Sender: TObject);
     procedure PaintPreview(Sender: TObject);
     procedure PreviewWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
-    procedure PreviewMouseDown(Sender: TObject; Button: TMouseButton;
+    procedure EditMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
-    procedure PreviewMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
-    procedure PreviewMouseUp(Sender: TObject; Button: TMouseButton;
+    procedure EditMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure EditMouseUp(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
-    procedure SaveSettings(Sender: TObject; var CanClose: Boolean);
+    procedure UpdateDrag(X, Y: Integer);
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    // 選択中のオブジェクトの設定を読み込み、保存操作時にだけJSONを返す。
-    procedure LoadSettings(const JSON: string; Width, Height: Integer;
-      ReadBackground: TMusicStudioReadBackground; SaveJSON: TNicomeaSaveJSON);
+    // 呼び出し側の設定はコピーする。OK後だけLayoutを読み出す。
+    procedure LoadLayout(const Layout: TNicomeaLayout;
+      const Supporters: TNicomeaSupportersByKind; Kind: TNicomeaHistoryKind;
+      Width, Height: Integer; Duration: Double; ReadBackground: TMusicStudioReadBackground);
+    property Layout: TNicomeaLayout read FLayout;
+    property Kind: TNicomeaHistoryKind read FKind;
   end;
 
 implementation
 
 uses
-  System.DateUtils, System.SysUtils, System.UITypes, Winapi.Messages, Winapi.Windows,
-  Vcl.Dialogs, SYNC_MusicStudio_DarkTheme;
+  System.Math, System.SysUtils, System.UITypes, Winapi.GDIPAPI, Winapi.GDIPOBJ, Winapi.Messages,
+  Winapi.UxTheme, Winapi.Windows, Vcl.Menus, SYNC_MusicStudio_DarkTheme, ColorPickerColorMath;
 
 const
-  VIDEO_ID_KEY = 'videoId';
   MUTED_TEXT = TColor($00B5B5B5);
-  DISABLED_TEXT = TColor($00888888);
   BUTTON_BORDER = TColor($00545454);
   BUTTON_ACCENT = TColor($006D492B);
   ACCENT_BORDER = TColor($00D6A778);
+  STYLE_NAMES: array[TNicomeaStyle] of string = ('横スクロール', '縦スクロール', 'ページ切り替え');
 
 type
-  // Windowsの配色設定にかかわらず、このフォームのボタンを暗色で描画する。
   TNicomeaDarkButton = class(TButton)
   private
     FAccent: Boolean;
@@ -106,25 +137,21 @@ procedure TNicomeaDarkButton.DrawButton(var Message: TWMDrawItem);
 var
   Item: PDrawItemStruct;
   Bounds: TRect;
-  FillColor, BorderColor, TextColor: TColor;
+  FillColor, BorderColor: TColor;
   Brush: HBRUSH;
   SavedDC: Integer;
 begin
   Item := Message.DrawItemStruct;
   Bounds := Item^.rcItem;
-  if FAccent and Enabled then
+  FillColor := SYNC_MUSIC_STUDIO_DARK_CONTROL_COLOR;
+  BorderColor := BUTTON_BORDER;
+  if FAccent then
   begin
     FillColor := BUTTON_ACCENT;
     BorderColor := ACCENT_BORDER;
-  end
-  else
-  begin
-    FillColor := SYNC_MUSIC_STUDIO_DARK_CONTROL_COLOR;
-    BorderColor := BUTTON_BORDER;
   end;
   if Item^.itemState and ODS_SELECTED <> 0 then
     FillColor := SYNC_MUSIC_STUDIO_DARK_BACKGROUND_COLOR;
-
   SavedDC := SaveDC(Item^.hDC);
   try
     Brush := GetStockObject(DC_BRUSH);
@@ -134,11 +161,8 @@ begin
     FrameRect(Item^.hDC, Bounds, Brush);
     SelectObject(Item^.hDC, Font.Handle);
     SetBkMode(Item^.hDC, TRANSPARENT);
-    TextColor := SYNC_MUSIC_STUDIO_DARK_TEXT_COLOR;
-    if not Enabled then TextColor := DISABLED_TEXT;
-    SetTextColor(Item^.hDC, ColorToRGB(TextColor));
-    DrawText(Item^.hDC, PChar(Caption), -1, Bounds,
-      DT_CENTER or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
+    SetTextColor(Item^.hDC, ColorToRGB(SYNC_MUSIC_STUDIO_DARK_TEXT_COLOR));
+    DrawText(Item^.hDC, PChar(Caption), -1, Bounds, DT_CENTER or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
     if Item^.itemState and ODS_FOCUS <> 0 then
     begin
       InflateRect(Bounds, -3, -3);
@@ -150,7 +174,7 @@ begin
   Message.Result := 1;
 end;
 
-function NewDarkPanel(Parent: TWinControl; Alignment: TAlign): TPanel;
+function DarkPanel(Parent: TWinControl; Alignment: TAlign): TPanel;
 begin
   Result := TPanel.Create(Parent);
   Result.Parent := Parent;
@@ -161,522 +185,584 @@ begin
   ApplySyncMusicStudioDarkPanel(Result);
 end;
 
-function ParseSettingsJSON(const Text: string): TJSONObject;
-var
-  Bytes: TBytes;
+function LabelAt(Parent: TWinControl; const Text: string; X, Y: Integer): TLabel;
 begin
-  Result := TJSONObject.Create;
-  if Text.Trim.IsEmpty then Exit;
-  Bytes := TEncoding.UTF8.GetBytes(Text);
-  if Result.Parse(Bytes, 0, True) = Length(Bytes) then Exit;
-  FreeAndNil(Result);
+  Result := TLabel.Create(Parent);
+  Result.Parent := Parent;
+  Result.Caption := Text;
+  Result.ShowAccelChar := False;
+  Result.Left := X;
+  Result.Top := Y;
+end;
+
+function ButtonAt(Parent: TWinControl; const Text: string;
+  X, Y, W: Integer; Click: TNotifyEvent = nil): TNicomeaDarkButton;
+begin
+  Result := TNicomeaDarkButton.Create(Parent);
+  Result.Parent := Parent;
+  Result.Caption := Text;
+  Result.SetBounds(X, Y, W, 30);
+  Result.OnClick := Click;
+end;
+
+procedure AddDialogButtons(Form: TForm);
+var
+  Footer: TPanel;
+  Button: TNicomeaDarkButton;
+begin
+  Footer := DarkPanel(Form, alBottom);
+  Footer.Color := Form.Color;
+  Footer.Height := 42;
+  Footer.Padding.Top := 8;
+  Button := ButtonAt(Footer, 'キャンセル', 0, 0, 104);
+  Button.Align := alRight;
+  Button.Cancel := True;
+  Button.ModalResult := mrCancel;
+  Button := ButtonAt(Footer, 'OK', 0, 0, 82);
+  Button.Align := alRight;
+  Button.AlignWithMargins := True;
+  Button.Margins.SetBounds(0, 0, 8, 0);
+  Button.ModalResult := mrOk;
+  Button.Default := True;
+  Button.FAccent := True;
 end;
 
 constructor TFormNicomeaSettings.Create(AOwner: TComponent);
-const
-  PAGE_CAPTIONS: array[TNicomeaPage] of string = ('広告', 'ギフト');
 var
-  Footer, SettingsPanel, VideoPanel, VideoRow, InputPanel, PageBar, LogPanel, PreviewPanel: TPanel;
-  Label_: TLabel;
-  Button: TNicomeaDarkButton;
-  Page: TNicomeaPage;
+  SettingsPanel, PreviewPanel: TPanel;
+  SettingsScroll: TScrollBox;
+  PreviewMenu: TPopupMenu;
+  ResetItem: TMenuItem;
 begin
   inherited CreateNew(AOwner);
   Caption := 'ニコメアの設定';
   Position := poScreenCenter;
-  ClientWidth := 1100;
-  ClientHeight := 620;
-  Constraints.MinWidth := 820;
-  Constraints.MinHeight := 490;
+  ClientWidth := 1120;
+  ClientHeight := 640;
+  Constraints.MinWidth := 830;
+  Constraints.MinHeight := 625;
   Padding.SetBounds(12, 12, 12, 12);
   Font.Name := 'Yu Gothic UI';
   Font.Size := 10;
   StyleElements := [];
   DoubleBuffered := True;
   OnMouseWheel := PreviewWheel;
-  OnCloseQuery := SaveSettings;
   ApplySyncMusicStudioDarkForm(Self);
-
   FBackground := Vcl.Graphics.TBitmap.Create;
   FBuffer := Vcl.Graphics.TBitmap.Create;
+  FDecorationBuffer := Vcl.Graphics.TBitmap.Create;
+  FRenderer := TNicomeaRenderer.Create;
+  FDecorationRenderer := TNicomeaRenderer.Create;
+  AddDialogButtons(Self);
 
-  Footer := NewDarkPanel(Self, alBottom);
-  Footer.Color := SYNC_MUSIC_STUDIO_DARK_BACKGROUND_COLOR;
-  Footer.Height := 36;
-  Footer.AlignWithMargins := True;
-  Footer.Margins.SetBounds(0, 12, 0, 0);
+  SettingsScroll := TScrollBox.Create(Self);
+  SettingsScroll.Parent := Self;
+  SettingsScroll.Align := alRight;
+  SettingsScroll.Width := 360;
+  SettingsScroll.AlignWithMargins := True;
+  SettingsScroll.Margins.SetBounds(12, 0, 0, 0);
+  SettingsScroll.BorderStyle := bsNone;
+  SettingsScroll.Color := SYNC_MUSIC_STUDIO_DARK_PANEL_COLOR;
+  SettingsScroll.HorzScrollBar.Visible := False;
+  SettingsPanel := DarkPanel(SettingsScroll, alTop);
+  BuildControls(SettingsPanel);
 
-  Button := TNicomeaDarkButton.Create(Self);
-  Button.Parent := Footer;
-  Button.Align := alRight;
-  Button.Caption := 'キャンセル';
-  Button.Cancel := True;
-  Button.ModalResult := mrCancel;
-  Button.Width := 102;
-
-  Button := TNicomeaDarkButton.Create(Self);
-  Button.Parent := Footer;
-  Button.Align := alRight;
-  Button.Caption := '保存';
-  Button.Default := True;
-  Button.ModalResult := mrOk;
-  Button.Width := 84;
-  Button.AlignWithMargins := True;
-  Button.Margins.SetBounds(0, 0, 8, 0);
-  Button.FAccent := True;
-  FSaveButton := Button;
-
-  FStatus := TLabel.Create(Self);
-  FStatus.Parent := Footer;
-  FStatus.Align := alClient;
-  FStatus.Layout := tlCenter;
-  FStatus.Font.Color := MUTED_TEXT;
-  FStatus.ShowAccelChar := False;
-  FStatus.EllipsisPosition := epEndEllipsis;
-
-  SettingsPanel := NewDarkPanel(Self, alRight);
-  SettingsPanel.Width := 462;
-  SettingsPanel.AlignWithMargins := True;
-  SettingsPanel.Margins.SetBounds(12, 0, 0, 0);
-  SettingsPanel.Padding.SetBounds(16, 16, 16, 16);
-
-  VideoPanel := NewDarkPanel(SettingsPanel, alTop);
-  VideoPanel.Height := 62;
-
-  Label_ := TLabel.Create(Self);
-  Label_.Parent := VideoPanel;
-  Label_.Caption := '動画 ID';
-  Label_.Font.Style := [fsBold];
-
-  VideoRow := NewDarkPanel(VideoPanel, alBottom);
-  VideoRow.Height := 34;
-
-  Button := TNicomeaDarkButton.Create(Self);
-  Button.Parent := VideoRow;
-  Button.Align := alLeft;
-  Button.AlignWithMargins := True;
-  Button.Margins.SetBounds(0, 0, 8, 0);
-  Button.Width := 76;
-  Button.Caption := '取得';
-  Button.FAccent := True;
-  Button.OnClick := FetchClick;
-  FFetchButton := Button;
-
-  InputPanel := NewDarkPanel(VideoRow, alClient);
-  InputPanel.Color := SYNC_MUSIC_STUDIO_DARK_CONTROL_COLOR;
-  InputPanel.Padding.SetBounds(8, 6, 8, 4);
-  FVideoID := TEdit.Create(Self);
-  FVideoID.Parent := InputPanel;
-  FVideoID.Align := alClient;
-  FVideoID.AutoSize := False;
-  FVideoID.TextHint := '動画 ID または視聴 URL';
-  FVideoID.BorderStyle := bsNone;
-  FVideoID.StyleElements := [];
-  ApplySyncMusicStudioDarkEdit(FVideoID);
-  Label_.FocusControl := FVideoID;
-
-  PageBar := NewDarkPanel(SettingsPanel, alTop);
-  PageBar.Height := 36;
-  PageBar.AlignWithMargins := True;
-  PageBar.Margins.SetBounds(0, 14, 0, 12);
-  for Page := Low(TNicomeaPage) to High(TNicomeaPage) do
-  begin
-    Button := TNicomeaDarkButton.Create(Self);
-    Button.Parent := PageBar;
-    Button.Align := alLeft;
-    Button.AlignWithMargins := True;
-    Button.Margins.SetBounds(0, 0, 8, 0);
-    Button.Width := 94;
-    Button.Caption := PAGE_CAPTIONS[Page];
-    Button.Tag := Ord(Page);
-    Button.OnClick := PageClick;
-    FPageButtons[Page] := Button;
-  end;
-
-  LogPanel := NewDarkPanel(SettingsPanel, alBottom);
-  LogPanel.Height := 128;
-  LogPanel.AlignWithMargins := True;
-  LogPanel.Margins.SetBounds(0, 12, 0, 0);
-  Label_ := TLabel.Create(Self);
-  Label_.Parent := LogPanel;
-  Label_.Align := alTop;
-  Label_.AlignWithMargins := True;
-  Label_.Margins.SetBounds(0, 0, 0, 6);
-  Label_.Caption := '取得ログ';
-  Label_.Font.Style := [fsBold];
-
-  FLog := TMemo.Create(Self);
-  FLog.Parent := LogPanel;
-  FLog.Align := alClient;
-  FLog.BorderStyle := bsNone;
-  FLog.ReadOnly := True;
-  FLog.ScrollBars := ssVertical;
-  FLog.WantReturns := False;
-  ApplySyncMusicStudioDarkMemo(FLog);
-
-  BuildPage(nhAdvertising, SettingsPanel, '広告履歴',
-    ['開始日', '広告者', 'ポイント'], [108, 195, 86]);
-  BuildPage(nhGifts, SettingsPanel, 'ギフト履歴',
-    ['日時', '支援者', 'ギフト名', 'ポイント', '貢献度'], [132, 70, 76, 60, 56]);
-  SelectPage(nhAdvertising);
-
-  PreviewPanel := NewDarkPanel(Self, alClient);
+  PreviewPanel := DarkPanel(Self, alClient);
   PreviewPanel.Padding.SetBounds(10, 8, 10, 10);
-  Label_ := TLabel.Create(Self);
-  Label_.Parent := PreviewPanel;
-  Label_.Align := alTop;
-  Label_.AlignWithMargins := True;
-  Label_.Margins.SetBounds(0, 0, 0, 8);
-  Label_.Caption := 'プレビュー';
-  Label_.Font.Style := [fsBold];
-
+  FHint := LabelAt(PreviewPanel, '', 0, 0);
+  FHint.Align := alTop;
+  FHint.AutoSize := False;
+  FHint.Height := 25;
+  FHint.Font.Color := MUTED_TEXT;
+  FHint.EllipsisPosition := epEndEllipsis;
   FPreview := TPaintBox.Create(Self);
   FPreview.Parent := PreviewPanel;
   FPreview.Align := alClient;
+  FPreview.Hint := '左クリックで一時停止・再生、右クリックで配置を初期化' + sLineBreak +
+    'ホイールで拡大、中ドラッグで移動';
+  FPreview.ShowHint := True;
   FPreview.OnPaint := PaintPreview;
-  FPreview.OnMouseDown := PreviewMouseDown;
-  FPreview.OnMouseMove := PreviewMouseMove;
-  FPreview.OnMouseUp := PreviewMouseUp;
+  FPreview.OnMouseDown := EditMouseDown;
+  FPreview.OnMouseMove := EditMouseMove;
+  FPreview.OnMouseUp := EditMouseUp;
+  PreviewMenu := TPopupMenu.Create(Self);
+  ResetItem := TMenuItem.Create(PreviewMenu);
+  ResetItem.Caption := '配置を初期化';
+  ResetItem.OnClick := ResetStyle;
+  PreviewMenu.Items.Add(ResetItem);
+  FPreview.PopupMenu := PreviewMenu;
 
   FTimer := TTimer.Create(Self);
   FTimer.Enabled := False;
-  FTimer.Interval := 100;
-  FTimer.OnTimer := TimerTick;
-  ActiveControl := FVideoID;
-end;
-
-procedure TFormNicomeaSettings.BuildPage(Page: TNicomeaPage; Parent: TWinControl;
-  const Title: string; const Columns: array of string;
-  const ColumnWidths: array of Integer);
-var
-  Panel: TPanel;
-  Label_: TLabel;
-  Grid: TStringGrid;
-  I: Integer;
-begin
-  Panel := NewDarkPanel(Parent, alClient);
-  FPages[Page] := Panel;
-
-  Label_ := TLabel.Create(Self);
-  Label_.Parent := Panel;
-  Label_.Align := alTop;
-  Label_.AlignWithMargins := True;
-  Label_.Margins.SetBounds(0, 0, 0, 8);
-  Label_.Caption := Title;
-  Label_.Font.Style := [fsBold];
-
-  Label_ := TLabel.Create(Self);
-  Label_.Parent := Panel;
-  Label_.Align := alBottom;
-  Label_.AlignWithMargins := True;
-  Label_.Margins.SetBounds(0, 8, 0, 0);
-  Label_.Caption := '取得待ち';
-  FHistoryStatus[Page] := Label_;
-  Label_.Font.Color := MUTED_TEXT;
-
-  Grid := TStringGrid.Create(Self);
-  FHistoryGrids[Page] := Grid;
-  Grid.Parent := Panel;
-  Grid.Align := alClient;
-  Grid.BorderStyle := bsNone;
-  Grid.Ctl3D := False;
-  Grid.StyleElements := [];
-  Grid.DrawingStyle := gdsClassic;
-  Grid.Color := SYNC_MUSIC_STUDIO_DARK_BACKGROUND_COLOR;
-  Grid.FixedColor := SYNC_MUSIC_STUDIO_DARK_CONTROL_COLOR;
-  Grid.ColCount := Length(Columns);
-  Grid.FixedCols := 0;
-  Grid.RowCount := 2;
-  Grid.FixedRows := 1;
-  Grid.DefaultRowHeight := 28;
-  Grid.Options := [goFixedVertLine, goFixedHorzLine, goRowSelect];
-  Grid.RowHeights[1] := 0;
-  Grid.ScrollBars := ssVertical;
-  Grid.TabStop := False;
-  for I := 0 to High(Columns) do
-  begin
-    Grid.Cells[I, 0] := Columns[I];
-    Grid.ColWidths[I] := ColumnWidths[I];
-  end;
-end;
-
-procedure TFormNicomeaSettings.SelectPage(Page: TNicomeaPage);
-var
-  Item: TNicomeaPage;
-  Button: TNicomeaDarkButton;
-begin
-  for Item := Low(TNicomeaPage) to High(TNicomeaPage) do
-  begin
-    FPages[Item].Visible := Item = Page;
-    Button := TNicomeaDarkButton(FPageButtons[Item]);
-    Button.FAccent := Item = Page;
-    Button.Invalidate;
-  end;
-end;
-
-procedure TFormNicomeaSettings.PageClick(Sender: TObject);
-begin
-  SelectPage(TNicomeaPage(TButton(Sender).Tag));
+  FTimer.Interval := 33;
+  FTimer.OnTimer := PreviewTick;
 end;
 
 destructor TFormNicomeaSettings.Destroy;
 begin
-  if Assigned(FTimer) then FTimer.Enabled := False;
-  FRequest.Free;
-  FSettings.Free;
+  if FTimer <> nil then FTimer.Enabled := False;
+  FDecorationRenderer.Free;
+  FRenderer.Free;
+  FDecorationBuffer.Free;
   FBuffer.Free;
   FBackground.Free;
   inherited;
 end;
 
-procedure TFormNicomeaSettings.LoadSettings(const JSON: string; Width, Height: Integer;
-  ReadBackground: TMusicStudioReadBackground; SaveJSON: TNicomeaSaveJSON);
+procedure TFormNicomeaSettings.BuildControls(Panel: TPanel);
+const
+  ColorCaptions: array[TColorTarget] of string = ('文字', '縁', '影');
+  ColorHints: array[TColorTarget] of string = ('文字の色', '縁取りの色', '影の色');
+  PickerLeft = 16;
+  PickerTop = 409;
+  PickerSize = 152;
+  PickerGap = 8;
+  HueWidth = 26;
+  HueLeft = PickerLeft + PickerSize + PickerGap;
+  SampleLeft = HueLeft + HueWidth + PickerGap;
+  SettingsRight = 342;
 var
-  Value: TJSONValue;
+  Style: TNicomeaStyle;
+  Kind: TNicomeaHistoryKind;
+  Target: TColorTarget;
+
+  function Slider(const Text: string; X, Y, MinValue, MaxValue: Integer): TTrackBar;
+  begin
+    LabelAt(Panel, Text, X, Y);
+    Result := TTrackBar.Create(Panel);
+    Result.Parent := Panel;
+    Result.SetBounds(X, Y + 22, 155, 27);
+    Result.Max := MaxValue;
+    Result.Min := MinValue;
+    Result.TickStyle := tsNone;
+    Result.ShowSelRange := False;
+    Result.PositionToolTip := ptTop;
+    Result.PageSize := 1;
+    Result.StyleElements := [];
+    SetWindowTheme(Result.Handle, 'DarkMode_Explorer', nil);
+    Result.OnChange := ReadControls;
+  end;
+
+  function Choice(const Text: string; X, Y, Width: Integer): TComboBox;
+  begin
+    LabelAt(Panel, Text, X, Y);
+    Result := TComboBox.Create(Panel);
+    Result.Parent := Panel;
+    Result.SetBounds(X, Y + 22, Width, 27);
+    ApplySyncMusicStudioDarkComboBox(Result, DrawCombo);
+  end;
+
 begin
+  Panel.Height := PickerTop + PickerSize + 12;
+  FStyle := Choice('表示スタイル', 16, 12, 155);
+  for Style := Low(TNicomeaStyle) to High(TNicomeaStyle) do FStyle.Items.Add(STYLE_NAMES[Style]);
+  FStyle.OnChange := StyleChanged;
+
+  FKindSelector := Choice('表示対象', 187, 12, 155);
+  for Kind := Low(TNicomeaHistoryKind) to High(TNicomeaHistoryKind) do
+    FKindSelector.Items.Add(NICOMEA_KIND_NAMES[Kind]);
+  FKindSelector.OnChange := KindChanged;
+
+  LabelAt(Panel, '書式（右クリックで項目を挿入）', 16, 66);
+  FFormat := TEdit.Create(Panel);
+  FFormat.Parent := Panel;
+  FFormat.SetBounds(16, 88, 254, 27);
+  ApplySyncMusicStudioDarkEdit(FFormat);
+  FFormat.PopupMenu := TPopupMenu.Create(FFormat);
+  FFormat.OnChange := FormatChanged;
+
+  LabelAt(Panel, '区切り', 278, 66);
+  FSeparator := TEdit.Create(Panel);
+  FSeparator.Parent := Panel;
+  FSeparator.SetBounds(278, 88, 64, 27);
+  ApplySyncMusicStudioDarkEdit(FSeparator);
+  FSeparator.OnChange := ReadControls;
+
+  FFont := Choice('フォント', 16, 120, 326);
+  FFont.Items.Assign(Screen.Fonts);
+  FFont.OnChange := ReadControls;
+  FSize := Slider('文字サイズ', 16, 174, 6, 256);
+  FSize.Width := 326;
+
+  FBold := ButtonAt(Panel, 'B', 16, 230, 75, ToggleDecoration);
+  FItalic := ButtonAt(Panel, 'I', 100, 230, 75, ToggleDecoration);
+  FOutline := ButtonAt(Panel, '縁取り', 184, 230, 75, ToggleDecoration);
+  FShadow := ButtonAt(Panel, '影', 267, 230, 75, ToggleDecoration);
+  FBold.Font.Style := [fsBold];
+  FItalic.Font.Style := [fsItalic];
+
+  FSpacing := Slider('文字間隔', 16, 265, 0, 64);
+  FLineGap := Slider('行間', 187, 265, 0, 128);
+  FMaxChars := Slider('最大文字数（左端で自動）', 16, 317, 0, 1000);
+
+  FSingleColumn := TSyncMusicStudioDarkCheckBox.Create(Panel);
+  FSingleColumn.Parent := Panel;
+  FSingleColumn.SetBounds(187, 341, 155, 24);
+  FSingleColumn.Caption := '1 列に並べる';
+  FSingleColumn.OnClick := ReadControls;
+
+  for Target := Low(TColorTarget) to High(TColorTarget) do
+  begin
+    FColorButtons[Target] := ButtonAt(Panel, ColorCaptions[Target],
+      16 + Ord(Target) * 50, 371, 44, SelectColorTarget);
+    FColorButtons[Target].Tag := Ord(Target);
+    FColorButtons[Target].Hint := ColorHints[Target];
+    FColorButtons[Target].ShowHint := True;
+  end;
+  FColorSwatch := DarkPanel(Panel, alNone);
+  FColorSwatch.SetBounds(166, 374, 176, 24);
+
+  FColorArea := TColorPickerSVArea.Create(Panel);
+  FColorArea.Parent := Panel;
+  FColorArea.SetBounds(PickerLeft, PickerTop, PickerSize, PickerSize);
+  FColorArea.OnChange := ColorChanged;
+
+  FHueBar := TColorPickerHueBar.Create(Panel);
+  FHueBar.Parent := Panel;
+  FHueBar.SetBounds(HueLeft, PickerTop, HueWidth, PickerSize);
+  FHueBar.OnChange := HueChanged;
+
+  FDecorationSample := TPaintBox.Create(Panel);
+  FDecorationSample.Parent := Panel;
+  FDecorationSample.SetBounds(SampleLeft, PickerTop, SettingsRight - SampleLeft, PickerSize);
+  FDecorationSample.ShowHint := True;
+  FDecorationSample.OnPaint := PaintDecorationSample;
+  FDecorationSample.OnMouseDown := EditMouseDown;
+  FDecorationSample.OnMouseMove := EditMouseMove;
+  FDecorationSample.OnMouseUp := EditMouseUp;
+end;
+
+procedure TFormNicomeaSettings.LoadLayout(const Layout: TNicomeaLayout;
+  const Supporters: TNicomeaSupportersByKind; Kind: TNicomeaHistoryKind;
+  Width, Height: Integer; Duration: Double; ReadBackground: TMusicStudioReadBackground);
+begin
+  FLayout := Layout;
+  FSupportersByKind := Supporters;
+  FKind := Kind;
   FFrameWidth := Width;
   FFrameHeight := Height;
-  if (Width <= 0) or (Height <= 0) then
-  begin
-    FFrameWidth := 1920;
-    FFrameHeight := 1080;
-  end;
+  FDuration := Max(0.1, Duration);
   FReadBackground := ReadBackground;
-  FSaveJSON := SaveJSON;
-  FreeAndNil(FSettings);
-  FSettings := ParseSettingsJSON(JSON);
-  FOriginalVideoID := '';
-  if Assigned(FSettings) then
-  begin
-    Value := FSettings.GetValue(VIDEO_ID_KEY);
-    if Value is TJSONString then
-      FOriginalVideoID := Value.Value;
-  end;
-  FVideoID.Text := FOriginalVideoID;
-  AppendLog('動画 ID または視聴 URL を入力して取得してください。');
-  RefreshBackground(nil);
+  FSelected := True;
+  FPlaying := True;
+  FPausedProgress := 0;
+  FPlayStart := GetTickCount64;
+  SyncFormatControls;
+  SyncColorPicker;
+  SyncControls;
+  PreviewTick(nil);
   FTimer.Enabled := True;
 end;
 
-procedure TFormNicomeaSettings.SaveSettings(Sender: TObject; var CanClose: Boolean);
-var
-  VideoID: string;
+procedure TFormNicomeaSettings.SyncFormatControls;
 begin
-  if Assigned(FRequest) then
-  begin
-    CanClose := False;
-    if (ModalResult <> mrOk) and not FCloseAfterFetch then
-    begin
-      FCloseAfterFetch := True;
-      FRequest.Terminate;
-      AppendLog('中止を要求しました。通信終了後に閉じます。');
-    end;
-    Exit;
-  end;
-  if ModalResult <> mrOk then Exit;
-  VideoID := Trim(FVideoID.Text);
-  if VideoID = FOriginalVideoID then Exit;
-  CanClose := False;
-  if VideoID <> '' then
-  begin
-    VideoID := NormalizeNicomeaVideoID(VideoID);
-    if VideoID = '' then
-    begin
-      MessageDlg('ニコニコ動画の動画 ID または視聴 URL を入力してください。',
-        mtWarning, [mbOK], 0);
-      ActiveControl := FVideoID;
-      Exit;
-    end;
-  end;
-  if FSettings = nil then
-  begin
-    MessageDlg('AviUtl2側の「JSONデータ」を有効なJSONオブジェクトに直してから保存してください。',
-      mtWarning, [mbOK], 0);
-    Exit;
-  end;
-  FSettings.RemovePair(VIDEO_ID_KEY).Free;
-  if VideoID <> '' then
-    FSettings.AddPair(VIDEO_ID_KEY, VideoID);
+  FUpdating := True;
   try
-    FSaveJSON(FSettings.ToJSON);
-    CanClose := True;
-  except
-    on E: Exception do
-      MessageDlg(E.Message, mtError, [mbOK], 0);
+    FKindSelector.ItemIndex := Ord(FKind);
+    FFormat.Text := FLayout.Formats[FKind];
+    FSeparator.Text := FLayout.Separator;
+  finally
+    FUpdating := False;
   end;
+  BuildFormatMenu;
+  FSupporters := FSupportersByKind[FKind];
+  FPreviewSource := NICOMEA_KIND_NAMES[FKind];
+  if Length(FSupporters) = 0 then
+  begin
+    FSupporters := SampleNicomeaSupporters;
+    FPreviewSource := FPreviewSource + '（サンプル）';
+  end;
+  UpdatePreviewCaption;
+  FDirty := True;
+  InvalidateDecorationSample;
 end;
 
-procedure TFormNicomeaSettings.CMDialogKey(var Message: TCMDialogKey);
+procedure TFormNicomeaSettings.BuildFormatMenu;
+type
+  TFormatToken = record
+    Code: Char;
+    Caption: string;
+    Kinds: set of TNicomeaHistoryKind;
+  end;
+const
+  Tokens: array[0..9] of TFormatToken = (
+    (Code: 'n'; Caption: 'ユーザー名'; Kinds: [nhAdvertising, nhGifts]),
+    (Code: 'p'; Caption: 'ポイント合計'; Kinds: [nhAdvertising, nhGifts]),
+    (Code: 'r'; Caption: '回数'; Kinds: [nhAdvertising, nhGifts]),
+    (Code: 'c'; Caption: '広告回数'; Kinds: [nhAdvertising]),
+    (Code: 'i'; Caption: '最新広告ID'; Kinds: [nhAdvertising]),
+    (Code: 'f'; Caption: '貢献度'; Kinds: [nhAdvertising]),
+    (Code: 'm'; Caption: '広告メッセージ'; Kinds: [nhAdvertising]),
+    (Code: 'g'; Caption: 'ギフト名'; Kinds: [nhGifts]),
+    (Code: 'c'; Caption: '貢献度'; Kinds: [nhGifts]),
+    (Code: '%'; Caption: '％記号'; Kinds: [nhAdvertising, nhGifts]));
+var
+  Menu: TPopupMenu;
+  Token: TFormatToken;
+  Item: TMenuItem;
 begin
-  if (Message.CharCode = VK_RETURN) and Assigned(FVideoID) and (ActiveControl = FVideoID) then
+  Menu := FFormat.PopupMenu;
+  Menu.Items.Clear;
+  for Token in Tokens do
+    if FKind in Token.Kinds then
+    begin
+      Item := TMenuItem.Create(Menu);
+      Item.Caption := '%' + Token.Code + '  ' + Token.Caption;
+      Item.Tag := Ord(Token.Code);
+      Item.OnClick := InsertFormatToken;
+      Menu.Items.Add(Item);
+    end;
+  Item := TMenuItem.Create(Menu);
+  Item.Caption := '-';
+  Menu.Items.Add(Item);
+  Item := TMenuItem.Create(Menu);
+  Item.Caption := '初期書式に戻す';
+  Item.OnClick := InsertFormatToken;
+  Menu.Items.Add(Item);
+end;
+
+procedure TFormNicomeaSettings.InsertFormatToken(Sender: TObject);
+var
+  Code: NativeInt;
+begin
+  Code := TMenuItem(Sender).Tag;
+  if Code = 0 then FFormat.Text := NICOMEA_DEFAULT_FORMAT[FKind]
+  else FFormat.SelText := '%' + Char(Code);
+  FFormat.SetFocus;
+end;
+
+procedure TFormNicomeaSettings.KindChanged(Sender: TObject);
+var
+  Index: Integer;
+begin
+  if FUpdating then Exit;
+  Index := FKindSelector.ItemIndex;
+  if (Index < Ord(Low(TNicomeaHistoryKind))) or (Index > Ord(High(TNicomeaHistoryKind))) or
+    (Index = Ord(FKind)) then Exit;
+  FKind := TNicomeaHistoryKind(Index);
+  FLayout.Formats[FKind] := NICOMEA_DEFAULT_FORMAT[FKind];
+  SyncFormatControls;
+end;
+
+procedure TFormNicomeaSettings.FormatChanged(Sender: TObject);
+begin
+  if FUpdating then Exit;
+  FLayout.Formats[FKind] := FFormat.Text;
+  if FLayout.Formats[FKind] = '' then
+    FLayout.Formats[FKind] := NICOMEA_DEFAULT_FORMAT[FKind];
+  FDirty := True;
+end;
+
+procedure TFormNicomeaSettings.SyncControls;
+var
+  FontIndex: Integer;
+begin
+  FUpdating := True;
+  try
+    FStyle.ItemIndex := Ord(FLayout.Style);
+    FontIndex := FFont.Items.IndexOf(FLayout.FontName);
+    if FontIndex < 0 then FontIndex := FFont.Items.Add(FLayout.FontName);
+    FFont.ItemIndex := FontIndex;
+    FSize.Position := FLayout.FontSize;
+    FSpacing.Position := FLayout.LetterSpacing;
+    FLineGap.Position := FLayout.LineGap;
+    FMaxChars.Position := FLayout.MaxChars;
+    FSingleColumn.Checked := FLayout.SingleColumn;
+    FSingleColumn.Enabled := FLayout.Style <> nsHorizontal;
+    TNicomeaDarkButton(FBold).FAccent := FLayout.Bold;
+    TNicomeaDarkButton(FItalic).FAccent := FLayout.Italic;
+    TNicomeaDarkButton(FOutline).FAccent := FLayout.Outline;
+    TNicomeaDarkButton(FShadow).FAccent := FLayout.Shadow;
+    FBold.Invalidate;
+    FItalic.Invalidate;
+    FOutline.Invalidate;
+    FShadow.Invalidate;
+  finally
+    FUpdating := False;
+  end;
+  FDirty := True;
+  InvalidateDecorationSample;
+end;
+
+procedure TFormNicomeaSettings.ReadControls(Sender: TObject);
+begin
+  if FUpdating then Exit;
+  if Sender = FFont then
   begin
-    FetchClick(FVideoID);
-    Message.Result := 1;
+    if FFont.ItemIndex >= 0 then FLayout.FontName := FFont.Items[FFont.ItemIndex];
   end
-  else
-    inherited;
+  else if Sender = FSingleColumn then FLayout.SingleColumn := FSingleColumn.Checked
+  else if Sender = FSize then FLayout.FontSize := FSize.Position
+  else if Sender = FSpacing then FLayout.LetterSpacing := FSpacing.Position
+  else if Sender = FLineGap then FLayout.LineGap := FLineGap.Position
+  else if Sender = FMaxChars then FLayout.MaxChars := FMaxChars.Position
+  else if Sender = FSeparator then FLayout.Separator := FSeparator.Text;
+  FDirty := True;
+  if Sender = FFont then InvalidateDecorationSample;
 end;
 
-procedure TFormNicomeaSettings.AppendLog(const Message: string);
-begin
-  FLog.Lines.Add(FormatDateTime('hh:nn:ss', Now) + '  ' + Message);
-  FLog.SelStart := FLog.GetTextLen;
-  FLog.Perform(EM_SCROLLCARET, 0, 0);
-end;
-
-procedure TFormNicomeaSettings.SetFetchBusy(Busy: Boolean);
-begin
-  FFetchButton.Enabled := not Busy;
-  FSaveButton.Enabled := not Busy;
-  FVideoID.ReadOnly := Busy;
-  if Busy then
-    FFetchButton.Caption := '取得中'
-  else
-    FFetchButton.Caption := '取得';
-end;
-
-procedure TFormNicomeaSettings.FetchClick(Sender: TObject);
+procedure TFormNicomeaSettings.StyleChanged(Sender: TObject);
 var
-  VideoID: string;
-  Page: TNicomeaPage;
+  Index: Integer;
 begin
-  if Assigned(FRequest) then Exit;
-  FLog.Clear;
-  VideoID := NormalizeNicomeaVideoID(FVideoID.Text);
-  if VideoID = '' then
-  begin
-    AppendLog('取得失敗 - ニコニコ動画の動画 ID または視聴 URL を入力してください。');
-    ActiveControl := FVideoID;
-    Exit;
-  end;
+  if FUpdating then Exit;
+  Index := FStyle.ItemIndex;
+  if (Index < 0) or (Index = Ord(FLayout.Style)) then Exit;
+  FLayout.ResetStyle(TNicomeaStyle(Index), FFrameWidth, FFrameHeight);
+  FPlayStart := GetTickCount64;
+  FPausedProgress := 0.2;
+  SyncControls;
+end;
 
-  FVideoID.Text := VideoID;
-  for Page := Low(TNicomeaPage) to High(TNicomeaPage) do
-  begin
-    UpdateHistory(Page, nil);
-    FHistoryStatus[Page].Caption := '取得中…';
-  end;
-  SetFetchBusy(True);
-  try
-    FRequest := TNicomeaHistoryRequest.Create(VideoID);
-    FRequest.Start;
-  except
-    on E: Exception do
-    begin
-      FreeAndNil(FRequest);
-      SetFetchBusy(False);
-      for Page := Low(TNicomeaPage) to High(TNicomeaPage) do
-        FHistoryStatus[Page].Caption := '取得失敗';
-      AppendLog('取得完了 - 失敗（' + E.Message + '）');
-    end;
+procedure TFormNicomeaSettings.ResetStyle(Sender: TObject);
+begin
+  FLayout.ResetStyle(FLayout.Style, FFrameWidth, FFrameHeight);
+  SyncControls;
+end;
+
+procedure TFormNicomeaSettings.ToggleDecoration(Sender: TObject);
+begin
+  if Sender = FBold then FLayout.Bold := not FLayout.Bold
+  else if Sender = FItalic then FLayout.Italic := not FLayout.Italic
+  else if Sender = FOutline then FLayout.Outline := not FLayout.Outline
+  else if Sender = FShadow then FLayout.Shadow := not FLayout.Shadow;
+  SyncControls;
+end;
+
+function TFormNicomeaSettings.TargetColor: TColor;
+begin
+  case FColorTarget of
+    ctOutline: Result := FLayout.OutlineColor;
+    ctShadow: Result := FLayout.ShadowColor;
+  else
+    Result := FLayout.Color;
   end;
 end;
 
-procedure TFormNicomeaSettings.TimerTick(Sender: TObject);
+procedure TFormNicomeaSettings.SyncColorPicker;
 var
-  Page: TNicomeaPage;
-  PreviousLogCount: Integer;
-  Done: Boolean;
+  Target: TColorTarget;
+  Color: TColor;
 begin
-  if Assigned(FRequest) then
+  Color := ColorToRGB(TargetColor);
+  FHueBar.Color := HsvToColor(ColorHue(Color), 1, 1);
+  FColorArea.BaseColor := FHueBar.Color;
+  FColorArea.Color := Color;
+  FColorSwatch.Color := Color;
+  for Target := Low(TColorTarget) to High(TColorTarget) do
   begin
-    Done := WaitForSingleObject(FRequest.Handle, 0) = WAIT_OBJECT_0;
-    PreviousLogCount := FLog.Lines.Count;
-    FRequest.DrainLog(FLog.Lines);
-    if FLog.Lines.Count <> PreviousLogCount then
-    begin
-      FLog.SelStart := FLog.GetTextLen;
-      FLog.Perform(EM_SCROLLCARET, 0, 0);
-    end;
+    TNicomeaDarkButton(FColorButtons[Target]).FAccent := Target = FColorTarget;
+    FColorButtons[Target].Invalidate;
+  end;
+end;
 
-    if Done then
-    begin
-      try
-        if not FCloseAfterFetch then
-          for Page := Low(TNicomeaPage) to High(TNicomeaPage) do
-            UpdateHistory(Page, FRequest.History(Page));
-      finally
-        FreeAndNil(FRequest);
-        SetFetchBusy(False);
-      end;
-      if FCloseAfterFetch then
+procedure TFormNicomeaSettings.SelectColorTarget(Sender: TObject);
+begin
+  if TColorTarget(TButton(Sender).Tag) = FColorTarget then Exit;
+  FColorTarget := TColorTarget(TButton(Sender).Tag);
+  SyncColorPicker;
+end;
+
+procedure TFormNicomeaSettings.HueChanged(Sender: TObject);
+var
+  Saturation, Value: Double;
+begin
+  ColorToSv(FColorArea.Color, Saturation, Value);
+  FColorArea.BaseColor := FHueBar.Color;
+  FColorArea.Color := HsvToColor(ColorHue(FHueBar.Color), Saturation, Value);
+  ColorChanged(Sender);
+end;
+
+procedure TFormNicomeaSettings.ColorChanged(Sender: TObject);
+var
+  Color: TColor;
+  EnabledDecoration: Boolean;
+begin
+  Color := ColorToRGB(FColorArea.Color);
+  if Color = ColorToRGB(TargetColor) then Exit;
+  FColorSwatch.Color := Color;
+  EnabledDecoration := False;
+  case FColorTarget of
+    ctText: FLayout.Color := Color;
+    ctOutline:
       begin
-        FCloseAfterFetch := False;
-        ModalResult := mrCancel;
-        Exit;
+        FLayout.OutlineColor := Color;
+        EnabledDecoration := not FLayout.Outline;
+        FLayout.Outline := True;
       end;
-    end;
+    ctShadow:
+      begin
+        FLayout.ShadowColor := Color;
+        EnabledDecoration := not FLayout.Shadow;
+        FLayout.Shadow := True;
+      end;
   end;
-  RefreshBackground(Sender);
-end;
-
-procedure TFormNicomeaSettings.UpdateHistory(Page: TNicomeaPage;
-  const History: TNicomeaHistory);
-var
-  Grid: TStringGrid;
-  I: Integer;
-  DateFormat: string;
-begin
-  Grid := FHistoryGrids[Page];
-  Grid.RowCount := 2;
-  Grid.Rows[1].Clear;
-  if Length(History) = 0 then
-    Grid.RowHeights[1] := 0
+  if EnabledDecoration then SyncControls
   else
   begin
-    Grid.RowCount := Length(History) + 1;
-    Grid.RowHeights[1] := Grid.DefaultRowHeight;
-    if Page = nhAdvertising then
-      DateFormat := 'yyyy/mm/dd'
-    else
-      DateFormat := 'yyyy/mm/dd hh:nn';
-    for I := 0 to High(History) do
-    begin
-      if (History[I].Timestamp > 0) and (History[I].Timestamp <= 253402300799) then
-        Grid.Cells[0, I + 1] := FormatDateTime(DateFormat, UnixToDateTime(History[I].Timestamp));
-      Grid.Cells[1, I + 1] := History[I].Name;
-      if Page = nhAdvertising then
-        Grid.Cells[2, I + 1] := IntToStr(History[I].Points)
-      else
-      begin
-        Grid.Cells[2, I + 1] := History[I].ItemName;
-        Grid.Cells[3, I + 1] := IntToStr(History[I].Points);
-        Grid.Cells[4, I + 1] := IntToStr(History[I].Contribution);
-      end;
-    end;
+    FDirty := True;
+    InvalidateDecorationSample;
   end;
-  FHistoryStatus[Page].Caption := Format('表示 %d 件', [Length(History)]);
 end;
 
-procedure TFormNicomeaSettings.RefreshBackground(Sender: TObject);
+function TFormNicomeaSettings.Progress: Double;
+var
+  Elapsed: Double;
+begin
+  if not FPlaying then Exit(FPausedProgress);
+  Elapsed := (GetTickCount64 - FPlayStart) / 1000 / FDuration + FPausedProgress;
+  Result := Frac(Elapsed);
+end;
+
+procedure TFormNicomeaSettings.UpdatePreviewCaption;
+begin
+  FHint.Caption := 'プレビュー  /  ' + FPreviewSource;
+  if FPlaying then FHint.Caption := FHint.Caption + '  /  再生中'
+  else FHint.Caption := FHint.Caption + '  /  一時停止中';
+end;
+
+procedure TFormNicomeaSettings.TogglePlayback;
+begin
+  FPausedProgress := Progress;
+  FPlaying := not FPlaying;
+  FPlayStart := GetTickCount64;
+  UpdatePreviewCaption;
+  FPreview.Invalidate;
+end;
+
+procedure TFormNicomeaSettings.DrawCombo(Control: TWinControl; Index: Integer; Bounds: TRect;
+  State: TOwnerDrawState);
+begin
+  DrawSyncMusicStudioDarkComboBoxItem(TComboBox(Control), Index, Bounds, State, CurrentPPI);
+end;
+
+procedure TFormNicomeaSettings.RefreshBackground;
 var
   Snapshot: TMusicStudioBackgroundSnapshot;
   X, Y: Integer;
   Row: PByte;
-  Status: string;
 begin
+  if not Assigned(FReadBackground) then Exit;
   if FReadBackground(FSerial, Snapshot) then
   begin
-    if Snapshot.Serial <> FSerial then
+    if Snapshot.Serial = FSerial then Exit;
+    FBackground.PixelFormat := pf32bit;
+    FBackground.SetSize(Snapshot.Width, Snapshot.Height);
+    for Y := 0 to Snapshot.Height - 1 do
     begin
-      FBackground.PixelFormat := pf32bit;
-      FBackground.SetSize(Snapshot.Width, Snapshot.Height);
-      for Y := 0 to Snapshot.Height - 1 do
-      begin
-        Row := FBackground.ScanLine[Y];
-        for X := 0 to Snapshot.Width - 1 do
-          with Snapshot.Pixels[Y * Snapshot.Width + X] do
-          begin
-            Row[0] := B;
-            Row[1] := G;
-            Row[2] := R;
-            Row[3] := 0;
-            Inc(Row, 4);
-          end;
-      end;
-      FSerial := Snapshot.Serial;
-      FPreview.Invalidate;
+      Row := FBackground.ScanLine[Y];
+      for X := 0 to Snapshot.Width - 1 do
+        with Snapshot.Pixels[Y * Snapshot.Width + X] do
+        begin
+          Row[0] := B;
+          Row[1] := G;
+          Row[2] := R;
+          Row[3] := 0;
+          Inc(Row, 4);
+        end;
     end;
+    FSerial := Snapshot.Serial;
+    FPreview.Invalidate;
   end
   else if not FBackground.Empty then
   begin
@@ -684,8 +770,18 @@ begin
     FBackground.SetSize(0, 0);
     FPreview.Invalidate;
   end;
-  Status := StringReplace(Snapshot.Status, sLineBreak, ' / ', [rfReplaceAll]);
-  if FStatus.Caption <> Status then FStatus.Caption := Status;
+end;
+
+procedure TFormNicomeaSettings.PreviewTick(Sender: TObject);
+begin
+  RefreshBackground;
+  if FDirty then
+  begin
+    FDirty := False;
+    FRenderer.Prepare(FLayout, FSupporters, FKind);
+    FPreview.Invalidate;
+  end
+  else if FPlaying then FPreview.Invalidate;
 end;
 
 function TFormNicomeaSettings.FitRect: TRect;
@@ -699,13 +795,144 @@ begin
   Result := MusicStudioFitFrameRect(Bounds, FFrameWidth, FFrameHeight);
 end;
 
+function TFormNicomeaSettings.PreviewArea(const Frame: TRect): TRect;
+var
+  Area: TRect;
+begin
+  if Frame.IsEmpty or (FFrameWidth <= 0) or (FFrameHeight <= 0) then Exit(TRect.Empty);
+  Area := NicomeaAreaRect(FLayout.Area, FFrameWidth, FFrameHeight, 0, 0, 1);
+  Result := Rect(Frame.Left + MulDiv(Area.Left, Frame.Width, FFrameWidth),
+    Frame.Top + MulDiv(Area.Top, Frame.Height, FFrameHeight),
+    Frame.Left + MulDiv(Area.Right, Frame.Width, FFrameWidth),
+    Frame.Top + MulDiv(Area.Bottom, Frame.Height, FFrameHeight));
+end;
+
+function TFormNicomeaSettings.DecorationHandle(Mode: TDecorationMode): TRect;
+var
+  X, Y, Size, Gap, Width: Integer;
+begin
+  Width := FDecorationSample.Width;
+  Gap := Min(MulDiv(4, CurrentPPI, 96), Width div 12);
+  Size := Min(MulDiv(22, CurrentPPI, 96), (Width - 4 * Gap) div 3);
+  X := (Width - (3 * Size + 2 * Gap)) div 2 +
+    (Ord(Mode) - Ord(Low(TDecorationMode))) * (Size + Gap);
+  Y := FDecorationSample.Height - Size - Gap;
+  Result := Rect(X, Y, X + Size, Y + Size);
+end;
+
+function TFormNicomeaSettings.DecorationEnabled(Mode: TDecorationMode): Boolean;
+begin
+  case Mode of
+    dmOutline: Result := FLayout.Outline;
+    dmShadow: Result := FLayout.Shadow;
+  else
+    Result := FLayout.Outline or FLayout.Shadow;
+  end;
+end;
+
+function TFormNicomeaSettings.DecorationAt(const CursorPoint: TPoint): TDragMode;
+var
+  Mode: TDecorationMode;
+begin
+  for Mode := Low(TDecorationMode) to High(TDecorationMode) do
+    if DecorationHandle(Mode).Contains(CursorPoint) then
+      Exit(Mode);
+  Result := dmNone;
+end;
+
+procedure TFormNicomeaSettings.InvalidateDecorationSample;
+begin
+  FDecorationDirty := True;
+  FDecorationSample.Invalidate;
+end;
+
+procedure TFormNicomeaSettings.PaintDecorationSample(Sender: TObject);
+const
+  Captions: array[TDecorationMode] of string = ('縁', '影', 'ぼ');
+  SampleWidth = 256;
+  SampleHeight = 208;
+var
+  SampleLayout: TNicomeaLayout;
+  Supporters: TArray<TNicomeaSupporter>;
+  Target: TGPGraphics;
+  Canvas: TCanvas;
+  Mode: TDecorationMode;
+  Sample, TextBounds, Bounds: TRect;
+begin
+  Sample := FDecorationSample.ClientRect;
+  if Sample.IsEmpty then Exit;
+  if FDecorationDirty then
+  begin
+    // 見本だけを固定サイズの1ページで描く。装飾は本番と共通のレンダラーを通す。
+    SampleLayout := FLayout;
+    SampleLayout.Style := nsPages;
+    SampleLayout.Area := Rect(0, 0, SampleWidth, SampleHeight);
+    SampleLayout.FontSize := 48;
+    SampleLayout.LetterSpacing := 0;
+    SampleLayout.LineGap := 0;
+    SampleLayout.MaxChars := 0;
+    SampleLayout.Formats[FKind] := '%n';
+    SetLength(Supporters, 1);
+    Supporters[0].Name := 'Aa';
+    FDecorationRenderer.Prepare(SampleLayout, Supporters, FKind);
+    FDecorationDirty := False;
+  end;
+  FDecorationBuffer.SetSize(Sample.Width, Sample.Height);
+  Canvas := FDecorationBuffer.Canvas;
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := $00787878;
+  Canvas.Pen.Color := BUTTON_BORDER;
+  Canvas.Rectangle(Sample);
+  TextBounds := Sample;
+  InflateRect(TextBounds, -MulDiv(3, CurrentPPI, 96), 0);
+  Inc(TextBounds.Top, 1);
+  TextBounds.Bottom := DecorationHandle(dmOutline).Top;
+  TextBounds := MusicStudioFitFrameRect(TextBounds, SampleWidth, SampleHeight);
+  Target := TGPGraphics.Create(Canvas.Handle);
+  try
+    FDecorationRenderer.Draw(Target, TextBounds, 0);
+  finally
+    Target.Free;
+  end;
+  Canvas.Font.Assign(Font);
+  for Mode := Low(TDecorationMode) to High(TDecorationMode) do
+  begin
+    Bounds := DecorationHandle(Mode);
+    Canvas.Brush.Style := bsSolid;
+    if FDragMode = Mode then
+    begin
+      Canvas.Brush.Color := ACCENT_BORDER;
+      Canvas.Pen.Color := clWhite;
+      Canvas.Font.Color := SYNC_MUSIC_STUDIO_DARK_BACKGROUND_COLOR;
+    end
+    else if DecorationEnabled(Mode) then
+    begin
+      Canvas.Brush.Color := BUTTON_ACCENT;
+      Canvas.Pen.Color := ACCENT_BORDER;
+      Canvas.Font.Color := clWhite;
+    end
+    else
+    begin
+      Canvas.Brush.Color := SYNC_MUSIC_STUDIO_DARK_CONTROL_COLOR;
+      Canvas.Pen.Color := BUTTON_BORDER;
+      Canvas.Font.Color := MUTED_TEXT;
+    end;
+    Canvas.Rectangle(Bounds);
+    Canvas.Brush.Style := bsClear;
+    DrawText(Canvas.Handle, PChar(Captions[Mode]), -1, Bounds,
+      DT_CENTER or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
+  end;
+  FDecorationSample.Canvas.Draw(0, 0, FDecorationBuffer);
+end;
+
 procedure TFormNicomeaSettings.PaintPreview(Sender: TObject);
 var
-  Frame: TRect;
+  Frame, Area: TRect;
   Canvas: TCanvas;
+  Target: TGPGraphics;
   Gap, MarkLength: Integer;
 
-  procedure DrawCorner(X, Y, DX, DY: Integer);
+  procedure Corner(X, Y, DX, DY: Integer);
   begin
     Canvas.MoveTo(X + DX * Gap, Y);
     Canvas.LineTo(X + DX * (Gap + MarkLength), Y);
@@ -717,6 +944,7 @@ begin
   if FPreview.ClientRect.IsEmpty then Exit;
   FBuffer.SetSize(FPreview.Width, FPreview.Height);
   Canvas := FBuffer.Canvas;
+  Canvas.Brush.Style := bsSolid;
   Canvas.Brush.Color := $00404040;
   Canvas.FillRect(FPreview.ClientRect);
   Frame := FViewport.Frame(FitRect);
@@ -725,16 +953,30 @@ begin
     Canvas.Brush.Color := $00606060;
     Canvas.FillRect(Frame);
     if not FBackground.Empty then
-      Canvas.StretchDraw(MusicStudioFitFrameRect(Frame, FBackground.Width,
-        FBackground.Height), FBackground);
+      Canvas.StretchDraw(MusicStudioFitFrameRect(Frame, FBackground.Width, FBackground.Height), FBackground);
+    Area := PreviewArea(Frame);
+    Target := TGPGraphics.Create(Canvas.Handle);
+    try
+      Target.SetClip(MakeRect(Frame.Left, Frame.Top, Frame.Width, Frame.Height));
+      FRenderer.Draw(Target, Area, Progress);
+    finally
+      Target.Free;
+    end;
 
     Gap := MulDiv(6, CurrentPPI, 96);
     MarkLength := MulDiv(12, CurrentPPI, 96);
     Canvas.Pen.Color := clWhite;
-    DrawCorner(Frame.Left, Frame.Top, -1, -1);
-    DrawCorner(Frame.Right - 1, Frame.Top, 1, -1);
-    DrawCorner(Frame.Left, Frame.Bottom - 1, -1, 1);
-    DrawCorner(Frame.Right - 1, Frame.Bottom - 1, 1, 1);
+    Corner(Frame.Left, Frame.Top, -1, -1);
+    Corner(Frame.Right - 1, Frame.Top, 1, -1);
+    Corner(Frame.Left, Frame.Bottom - 1, -1, 1);
+    Corner(Frame.Right - 1, Frame.Bottom - 1, 1, 1);
+    if FSelected then DrawLipSyncPlacement(Canvas, Area, MulDiv(5, CurrentPPI, 96))
+    else if not Area.IsEmpty then
+    begin
+      Canvas.Brush.Style := bsClear;
+      Canvas.Pen.Color := MUTED_TEXT;
+      Canvas.Rectangle(Area);
+    end;
   end;
   FPreview.Canvas.Draw(0, 0, FBuffer);
 end;
@@ -746,36 +988,191 @@ var
 begin
   CursorPoint := FPreview.ScreenToClient(MousePos);
   if not FPreview.ClientRect.Contains(CursorPoint) then Exit;
+  Handled := True;
+  if (FDragControl <> nil) and (GetCaptureControl = FDragControl) then Exit;
   FViewport.ZoomAt(FitRect, CursorPoint, WheelDelta);
   FPreview.Invalidate;
-  Handled := True;
 end;
 
-procedure TFormNicomeaSettings.PreviewMouseDown(Sender: TObject; Button: TMouseButton;
+procedure TFormNicomeaSettings.EditMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
+var
+  Area: TRect;
+  CursorPoint: TPoint;
 begin
-  if Button <> mbLeft then Exit;
-  FDragPoint := Point(X, Y);
-  SetCaptureControl(FPreview);
-end;
-
-procedure TFormNicomeaSettings.PreviewMouseMove(Sender: TObject; Shift: TShiftState;
-  X, Y: Integer);
-begin
-  if not (ssLeft in Shift) or (GetCaptureControl <> FPreview) then Exit;
-  FViewport.PanBy(X - FDragPoint.X, Y - FDragPoint.Y);
-  FDragPoint := Point(X, Y);
-  FPreview.Invalidate;
-end;
-
-procedure TFormNicomeaSettings.PreviewMouseUp(Sender: TObject; Button: TMouseButton;
-  Shift: TShiftState; X, Y: Integer);
-begin
-  if (Button = mbLeft) and (GetCaptureControl = FPreview) then
+  if not (Button in [mbLeft, mbMiddle]) then Exit;
+  if (FDragControl <> nil) and (Button <> FDragButton) and
+    (GetCaptureControl = FDragControl) then Exit;
+  CursorPoint := Point(X, Y);
+  if Sender = FDecorationSample then
   begin
-    PreviewMouseMove(Sender, Shift + [ssLeft], X, Y);
-    SetCaptureControl(nil);
+    if Button <> mbLeft then Exit;
+    FDragMode := DecorationAt(CursorPoint);
+    if FDragMode = dmNone then Exit;
+  end
+  else
+  begin
+    FDragMode := dmPan;
+    if Button = mbLeft then
+    begin
+      Area := PreviewArea(FViewport.Frame(FitRect));
+      FDragGrip := 0;
+      if FSelected then FDragGrip := LipSyncGripAt(Area, CursorPoint, MulDiv(6, CurrentPPI, 96));
+      FSelected := (FDragGrip <> 0) or Area.Contains(CursorPoint);
+      if FSelected then
+        if FDragGrip in [1..4] then FDragMode := dmResize
+        else FDragMode := dmMove;
+    end;
   end;
+  FDragStart := CursorPoint;
+  FDragLast := CursorPoint;
+  FDragLayout := FLayout;
+  FDragButton := Button;
+  FDragMoved := False;
+  FDragControl := TControl(Sender);
+  SetCaptureControl(FDragControl);
+  FDragControl.Invalidate;
+end;
+
+procedure TFormNicomeaSettings.EditMouseMove(Sender: TObject; Shift: TShiftState;
+  X, Y: Integer);
+const
+  DragHints: array[TDecorationMode] of string = (
+    '左右にドラッグして縁取りの太さを調整',
+    '上下左右にドラッグして影の位置を調整',
+    '左右にドラッグして縁取りと影のぼかしを調整');
+var
+  Mode: TDragMode;
+begin
+  if (FDragMode <> dmNone) and (Sender = FDragControl) and
+    (GetCaptureControl = FDragControl) then
+    UpdateDrag(X, Y)
+  else if Sender = FDecorationSample then
+  begin
+    Mode := DecorationAt(Point(X, Y));
+    case Mode of
+      dmOutline, dmBlur: FDecorationSample.Cursor := crSizeWE;
+      dmShadow: FDecorationSample.Cursor := crSizeAll;
+    else
+      FDecorationSample.Cursor := crDefault;
+    end;
+    if Mode in [dmOutline, dmShadow, dmBlur] then
+      FDecorationSample.Hint := DragHints[TDecorationMode(Mode)]
+    else FDecorationSample.Hint := '';
+  end;
+end;
+
+procedure TFormNicomeaSettings.UpdateDrag(X, Y: Integer);
+var
+  Frame, Area: TRect;
+  DX, DY, NewStroke, NewShadowX, NewShadowY, NewBlur, Threshold: Integer;
+  NewOutline, NewShadow, ToggleChanged: Boolean;
+begin
+  if not FDragMoved then
+  begin
+    // 左クリックと、表示位置・領域のドラッグをマウスの移動量で区別する。
+    Threshold := Max(1, MulDiv(4, CurrentPPI, 96));
+    if (FDragButton = mbLeft) and (FDragMode in [dmPan, dmMove, dmResize]) and
+      (Abs(X - FDragStart.X) < Threshold) and (Abs(Y - FDragStart.Y) < Threshold) then Exit;
+    FDragMoved := True;
+  end;
+  if FDragMode = dmPan then
+  begin
+    FViewport.PanBy(X - FDragLast.X, Y - FDragLast.Y);
+    FDragLast := Point(X, Y);
+    FPreview.Invalidate;
+    Exit;
+  end;
+  if FDragMode in [dmOutline, dmShadow, dmBlur] then
+  begin
+    // 装飾の感度はプレビュー倍率やプロジェクト解像度と独立させる。
+    DX := MulDiv(X - FDragStart.X, 96, CurrentPPI);
+    DY := MulDiv(Y - FDragStart.Y, 96, CurrentPPI);
+    NewStroke := FLayout.Stroke;
+    NewShadowX := FLayout.ShadowX;
+    NewShadowY := FLayout.ShadowY;
+    NewBlur := FLayout.Blur;
+    NewOutline := FLayout.Outline;
+    NewShadow := FLayout.Shadow;
+    case FDragMode of
+      dmOutline:
+        begin
+          NewStroke := EnsureRange(FDragLayout.Stroke + DX div 2, 1, 32);
+          if DX div 2 <> 0 then NewOutline := True;
+        end;
+      dmShadow:
+        begin
+          NewShadowX := EnsureRange(FDragLayout.ShadowX + DX, -64, 64);
+          NewShadowY := EnsureRange(FDragLayout.ShadowY + DY, -64, 64);
+          if (DX <> 0) or (DY <> 0) then NewShadow := True;
+        end;
+      dmBlur:
+        begin
+          NewBlur := EnsureRange(FDragLayout.Blur + DX div 2, 0, 24);
+          if (DX div 2 <> 0) and (NewBlur > 0) and not NewShadow then NewOutline := True;
+        end;
+    end;
+    ToggleChanged := (NewOutline <> FLayout.Outline) or (NewShadow <> FLayout.Shadow);
+    if ToggleChanged or (NewStroke <> FLayout.Stroke) or (NewShadowX <> FLayout.ShadowX) or
+      (NewShadowY <> FLayout.ShadowY) or (NewBlur <> FLayout.Blur) then
+    begin
+      FLayout.Outline := NewOutline;
+      FLayout.Shadow := NewShadow;
+      FLayout.Stroke := NewStroke;
+      FLayout.ShadowX := NewShadowX;
+      FLayout.ShadowY := NewShadowY;
+      FLayout.Blur := NewBlur;
+      if ToggleChanged then SyncControls
+      else
+      begin
+        FDirty := True;
+        InvalidateDecorationSample;
+      end;
+    end;
+    Exit;
+  end;
+  Frame := FViewport.Frame(FitRect);
+  if Frame.IsEmpty then Exit;
+  DX := MulDiv(X - FDragStart.X, FFrameWidth, Frame.Width);
+  DY := MulDiv(Y - FDragStart.Y, FFrameHeight, Frame.Height);
+  Area := FDragLayout.Area;
+  case FDragMode of
+    dmMove:
+      begin
+        DX := EnsureRange(DX, -16384 - Area.Left, 16384 - Area.Left);
+        DY := EnsureRange(DY, -16384 - Area.Top, 16384 - Area.Top);
+        Area.Offset(DX, DY);
+        FLayout.Area := Area;
+        FPreview.Invalidate;
+        Exit;
+      end;
+    dmResize:
+      begin
+        if FDragGrip in [1, 3] then
+          Area.Left := EnsureRange(Area.Left + DX, Area.Right - 8192, Area.Right - 16)
+        else Area.Right := EnsureRange(Area.Right + DX, Area.Left + 16, Area.Left + 8192);
+        if FDragGrip in [1, 2] then
+          Area.Top := EnsureRange(Area.Top + DY, Area.Bottom - 8192, Area.Bottom - 16)
+        else Area.Bottom := EnsureRange(Area.Bottom + DY, Area.Top + 16, Area.Top + 8192);
+        if FLayout.Area = Area then Exit;
+        FLayout.Area := Area;
+      end;
+  end;
+  FDirty := True;
+end;
+
+procedure TFormNicomeaSettings.EditMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if (FDragMode = dmNone) or (Sender <> FDragControl) or (Button <> FDragButton) then Exit;
+  // 左ボタンの OnMouseUp が呼ばれる時点で、VCL はキャプチャを解放済みの場合がある。
+  UpdateDrag(X, Y);
+  if GetCaptureControl = FDragControl then SetCaptureControl(nil);
+  if (Button = mbLeft) and not FDragMoved and (FDragMode in [dmPan, dmMove]) then
+    TogglePlayback;
+  FDragMode := dmNone;
+  FDragControl := nil;
+  TControl(Sender).Invalidate;
 end;
 
 end.

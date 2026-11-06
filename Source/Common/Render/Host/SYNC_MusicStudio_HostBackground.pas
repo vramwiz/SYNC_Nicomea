@@ -32,6 +32,8 @@ type
     procedure Publish(Owner: OBJECT_HANDLE; SceneID,Frame,Width,Height: Integer;
       Seconds: Double; const Pixels: TMusicStudioFramePixels; const Status: string = '');
     procedure Clear(const Status: string = '');
+    // 対象のスナップショットを保持しているか確認する。SceneIDが不明なら所有者で照合する。
+    function HasSnapshot(Owner: OBJECT_HANDLE; SceneID: Integer): Boolean;
     function CaptureFramebuffer(GetTexture: TFILTER_PROC_VIDEO_GET_TEX2D;
       out Pixels: TMusicStudioFramePixels; out Width,Height: Integer;
       out Status: string): Boolean;
@@ -71,6 +73,17 @@ end;
 function TMusicStudioHostBackground.CaptureFramebuffer(GetTexture: TFILTER_PROC_VIDEO_GET_TEX2D;
   out Pixels: TMusicStudioFramePixels; out Width,Height: Integer; out Status: string): Boolean;
 begin Result := FFramebuffer.Capture(GetTexture,Pixels,Width,Height,Status); end;
+
+function TMusicStudioHostBackground.HasSnapshot(Owner: OBJECT_HANDLE; SceneID: Integer): Boolean;
+begin
+  Lock.Acquire;
+  try
+    Result := (FOwner = Owner) and (FSnapshot.Serial <> 0) and
+      ((FSnapshot.SceneID = SceneID) or (SceneID < 0));
+  finally
+    Lock.Release;
+  end;
+end;
 
 procedure TMusicStudioHostBackground.Clear(const Status: string);
 begin

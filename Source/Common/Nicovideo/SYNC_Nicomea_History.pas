@@ -4,15 +4,15 @@
 interface
 
 uses
-  System.Classes, System.SyncObjs, System.Net.HttpClient;
+  System.Classes, System.JSON, System.SyncObjs, System.Net.HttpClient;
 
 type
   TNicomeaHistoryKind = (nhAdvertising, nhGifts);
 
   TNicomeaHistoryEntry = record
-    Timestamp: Int64;
+    Timestamp, UserID, HistoryID: Int64;
     Name: string;
-    ItemName: string;
+    ItemName, MessageText: string;
     Points, Contribution: Int64;
   end;
 
@@ -24,6 +24,7 @@ type
     FLog: TStringList;
     FLogLock: TCriticalSection;
     FHistory: array[TNicomeaHistoryKind] of TNicomeaHistory;
+    FSuccessful: set of TNicomeaHistoryKind;
     procedure Log(const Message: string);
     function Fetch(Client: THTTPClient; Kind: TNicomeaHistoryKind): TNicomeaHistory;
     function FetchHistory(Client: THTTPClient; Kind: TNicomeaHistoryKind): Boolean;
@@ -37,15 +38,23 @@ type
     procedure DrainLog(Destination: TStrings);
     // スレッド終了後に参照できる。失敗した種類は空の配列を返す。
     function History(Kind: TNicomeaHistoryKind): TNicomeaHistory;
+    function Succeeded(Kind: TNicomeaHistoryKind): Boolean;
   end;
 
 // 動画ID、視聴URL、共有用の短縮URLからIDを返す。解釈できない入力は空文字を返す。
 function NormalizeNicomeaVideoID(const Input: string): string;
 
+// 取得済み履歴をJSON項目に変換する。返した配列は呼び出し側で所有する。
+function NicomeaHistoryToJSON(const History: TNicomeaHistory;
+  Kind: TNicomeaHistoryKind): TJSONArray;
+// JSON項目から履歴を復元する。Arrayの所有権は呼び出し側に残る。
+function NicomeaHistoryFromJSON(Items: TJSONArray;
+  Kind: TNicomeaHistoryKind): TNicomeaHistory;
+
 implementation
 
 uses
-  System.Generics.Collections, System.JSON, System.Net.URLClient,
+  System.Generics.Collections, System.Net.URLClient,
   System.NetConsts, System.RegularExpressions, System.SysUtils;
 
 const
@@ -56,6 +65,7 @@ const
   CURSOR_PARAMS: array[TNicomeaHistoryKind] of string = ('offsetAdId', 'offsetId');
   CURSOR_KEYS: array[TNicomeaHistoryKind] of string = ('nicoadId', 'id');
   MAX_PAGES = 1000;
+  WINHTTP_TIMEOUT = '(12002)';
 
 function NormalizeNicomeaVideoID(const Input: string): string;
 const
@@ -94,6 +104,10 @@ begin
     Result.Timestamp := JSONNumber(Obj, 'startedAt');
     Result.Name := JSONText(Obj, 'advertiserName');
     Result.Points := JSONNumber(Obj, 'adPoint');
+    Result.UserID := JSONNumber(Obj, 'userId');
+    Result.HistoryID := JSONNumber(Obj, 'nicoadId');
+    Result.Contribution := JSONNumber(Obj, 'contribution');
+    Result.MessageText := JSONText(Obj, 'message');
   end
   else
   begin
@@ -101,8 +115,66 @@ begin
     Result.Name := JSONText(Obj, 'supporterName');
     Result.ItemName := JSONText(Obj, 'itemName');
     Result.Points := JSONNumber(Obj, 'point');
+    Result.UserID := JSONNumber(Obj, 'supporterId');
+    Result.HistoryID := JSONNumber(Obj, 'id');
     Result.Contribution := JSONNumber(Obj, 'contribution');
   end;
+end;
+
+function NicomeaHistoryToJSON(const History: TNicomeaHistory;
+  Kind: TNicomeaHistoryKind): TJSONArray;
+var
+  Entry: TNicomeaHistoryEntry;
+  Item: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  try
+    for Entry in History do
+    begin
+      Item := TJSONObject.Create;
+      Result.AddElement(Item);
+      if Kind = nhAdvertising then
+      begin
+        Item.AddPair('startedAt', Entry.Timestamp);
+        Item.AddPair('advertiserName', Entry.Name);
+        Item.AddPair('adPoint', Entry.Points);
+        Item.AddPair('userId', Entry.UserID);
+        Item.AddPair('nicoadId', Entry.HistoryID);
+        Item.AddPair('contribution', Entry.Contribution);
+        Item.AddPair('message', Entry.MessageText);
+      end
+      else
+      begin
+        Item.AddPair('publishedAt', Entry.Timestamp);
+        Item.AddPair('supporterName', Entry.Name);
+        Item.AddPair('itemName', Entry.ItemName);
+        Item.AddPair('point', Entry.Points);
+        Item.AddPair('supporterId', Entry.UserID);
+        Item.AddPair('id', Entry.HistoryID);
+        Item.AddPair('contribution', Entry.Contribution);
+      end;
+    end;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function NicomeaHistoryFromJSON(Items: TJSONArray;
+  Kind: TNicomeaHistoryKind): TNicomeaHistory;
+var
+  Item: TJSONValue;
+  Count: Integer;
+begin
+  SetLength(Result, Items.Count);
+  Count := 0;
+  for Item in Items do
+    if Item is TJSONObject then
+    begin
+      Result[Count] := ParseEntry(TJSONObject(Item), Kind);
+      Inc(Count);
+    end;
+  SetLength(Result, Count);
 end;
 
 constructor TNicomeaHistoryRequest.Create(const VideoID: string);
@@ -146,6 +218,11 @@ end;
 function TNicomeaHistoryRequest.History(Kind: TNicomeaHistoryKind): TNicomeaHistory;
 begin
   Result := FHistory[Kind];
+end;
+
+function TNicomeaHistoryRequest.Succeeded(Kind: TNicomeaHistoryKind): Boolean;
+begin
+  Result := Kind in FSuccessful;
 end;
 
 function TNicomeaHistoryRequest.Fetch(Client: THTTPClient;
@@ -234,12 +311,19 @@ begin
   try
     FHistory[Kind] := Fetch(Client, Kind);
     if Terminated then Exit;
+    Include(FSuccessful, Kind);
     Log(Format('%s - 成功（%d件）', [HISTORY_NAMES[Kind], Length(FHistory[Kind])]));
     Result := True;
   except
     on E: Exception do
       if not Terminated then
-        Log(HISTORY_NAMES[Kind] + ' - 失敗（' + E.Message + '）');
+      begin
+        // WinHTTPの例外メッセージにはロケールに関係なくエラー番号が入る。
+        if (E is ENetException) and E.Message.Contains(WINHTTP_TIMEOUT) then
+          Log(HISTORY_NAMES[Kind] + ' - 失敗（通信タイムアウト）')
+        else
+          Log(HISTORY_NAMES[Kind] + ' - 失敗（' + E.Message + '）');
+      end;
   end;
 end;
 
@@ -253,6 +337,7 @@ begin
     Client := THTTPClient.Create;
     try
       Client.ConnectionTimeout := 5000;
+      Client.SendTimeout := 5000;
       Client.ResponseTimeout := 10000;
       Client.HandleRedirects := False;
       Client.Accept := 'application/json';

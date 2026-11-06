@@ -89,6 +89,9 @@
         </DelphiCompile>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
         <DCCReference Include="Source\Lib\SYNC_MusicStudio_DarkTheme.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerColorMath.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerHueBar.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerSVArea.pas"/>
         <DCCReference Include="Source\Lib\FilterTable\PluginFilterTable.pas"/>
         <DCCReference Include="Source\Common\Audio\SYNC_MusicStudio_AudioWaveform.pas"/>
         <DCCReference Include="Source\Common\Render\Layers\Model\SYNC_MusicStudio_ArtDocument.pas"/>
@@ -112,6 +115,8 @@
             <Form>FormLipSyncSettings</Form>
         </DCCReference>
         <DCCReference Include="Source\Common\Nicovideo\SYNC_Nicomea_History.pas"/>
+        <DCCReference Include="Source\Common\Nicovideo\SYNC_Nicomea_Layout.pas"/>
+        <DCCReference Include="Source\Common\Nicovideo\SYNC_Nicomea_Renderer.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Nicomea_SettingsForm.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Nicomea_FilterPlugin.pas"/>
         <DCCReference Include="Source\Common\Project\SYNC_LipSync_Project.pas"/>

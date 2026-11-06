@@ -184,6 +184,15 @@ type
     List    : ^TFILTER_ITEM_SELECT_ITEM; // nil終端された選択肢配列。
   end;
 
+  // AviUtl2 v2.1.16で条件名nilを指定すると、対象項目を常に隠す。
+  TFILTER_ITEM_HIDE_RULE = record
+    ItemType: LPCWSTR;
+    Name: LPCWSTR;
+    ConditionName: LPCWSTR;
+    ConditionOperator: Integer;
+    ConditionValue: Integer;
+  end;
+
   // 選択中オブジェクトへ設定を反映する編集コールバック付きボタン。
   PFILTER_ITEM_BUTTON = ^TFILTER_ITEM_BUTTON;
   TFILTER_ITEM_BUTTON = record

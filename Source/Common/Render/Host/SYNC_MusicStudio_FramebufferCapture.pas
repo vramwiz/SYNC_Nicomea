@@ -30,6 +30,9 @@ type
   TPixelWords = array[0..3] of Word;
   PPixelWords = ^TPixelWords;
 
+var
+  HalfToByte: array[Word] of Byte;
+
 function HalfToSingle(Value: Word): Single;
 var Exponent: Integer; Mantissa,SignBits,Bits: Cardinal;
 begin
@@ -52,6 +55,15 @@ begin
   if IsNan(Value) or (Value<=0) then Exit(0);
   if Value>=1 then Exit(255);
   Result := Round(Value*255);
+end;
+
+procedure InitHalfToByte;
+var
+  Bits: Integer;
+begin
+  // 半精度の全ビットパターンを一度だけ変換し、フレームごとの浮動小数点演算を省く。
+  for Bits := Low(Word) to High(Word) do
+    HalfToByte[Bits] := FloatToByte(HalfToSingle(Bits));
 end;
 
 constructor TMusicStudioFramebufferCapture.Create;
@@ -116,16 +128,19 @@ begin
               for X := 0 to Integer(Desc.Width)-1 do begin
                 P^.R := Row[2]; P^.G := Row[1]; P^.B := Row[0]; P^.A := Row[3]; Inc(Row,4); Inc(P);
               end;
-            DXGI_FORMAT_R16G16B16A16_UNORM,DXGI_FORMAT_R16G16B16A16_FLOAT: begin
+            DXGI_FORMAT_R16G16B16A16_UNORM: begin
               Words := PPixelWords(Row);
               for X := 0 to Integer(Desc.Width)-1 do begin
-                if Desc.Format=DXGI_FORMAT_R16G16B16A16_UNORM then begin
-                  P^.R := Words[0] div 257; P^.G := Words[1] div 257;
-                  P^.B := Words[2] div 257; P^.A := Words[3] div 257;
-                end else begin
-                  P^.R := FloatToByte(HalfToSingle(Words[0])); P^.G := FloatToByte(HalfToSingle(Words[1]));
-                  P^.B := FloatToByte(HalfToSingle(Words[2])); P^.A := FloatToByte(HalfToSingle(Words[3]));
-                end;
+                P^.R := Words[0] div 257; P^.G := Words[1] div 257;
+                P^.B := Words[2] div 257; P^.A := Words[3] div 257;
+                Inc(Words); Inc(P);
+              end;
+            end;
+            DXGI_FORMAT_R16G16B16A16_FLOAT: begin
+              Words := PPixelWords(Row);
+              for X := 0 to Integer(Desc.Width)-1 do begin
+                P^.R := HalfToByte[Words[0]]; P^.G := HalfToByte[Words[1]];
+                P^.B := HalfToByte[Words[2]]; P^.A := HalfToByte[Words[3]];
                 Inc(Words); Inc(P);
               end;
             end;
@@ -138,5 +153,8 @@ begin
     except on E: Exception do begin Pixels := nil; Width := 0; Height := 0; Status := '背景取得失敗: '+E.Message; end; end;
   finally FLock.Release; end;
 end;
+
+initialization
+  InitHalfToByte;
 
 end.
