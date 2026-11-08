@@ -17,6 +17,7 @@ type
     TColorTarget = (ctText, ctOutline, ctShadow);
   private
     FPreview, FDecorationSample: TPaintBox;
+    FSettingsScroll: TScrollBox;
     FBackground, FBuffer, FDecorationBuffer: TBitmap;
     FTimer: TTimer;
     FReadBackground: TMusicStudioReadBackground;
@@ -30,7 +31,7 @@ type
     FKind: TNicomeaHistoryKind;
     FStyle, FFont, FKindSelector, FEffect: TComboBox;
     FFormat, FSeparator: TEdit;
-    FSize, FSpacing, FLineGap, FMaxChars: TTrackBar;
+    FSize, FSpacing, FLineGap: TTrackBar;
     FBold, FItalic, FOutline, FShadow: TButton;
     FColorButtons: array[TColorTarget] of TButton;
     FHueBar: TColorPickerHueBar;
@@ -51,6 +52,7 @@ type
     FDragStart, FDragLast: TPoint;
     FDragLayout: TNicomeaLayout;
     procedure BuildControls(Panel: TPanel);
+    procedure FitToWorkArea;
     procedure SyncControls;
     procedure SyncFormatControls;
     procedure BuildFormatMenu;
@@ -88,6 +90,10 @@ type
     procedure EditMouseUp(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
     procedure UpdateDrag(X, Y: Integer);
+  protected
+    procedure DoShow; override;
+    procedure DoAfterMonitorDpiChanged(OldDPI, NewDPI: Integer); override;
+    procedure Resize; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -112,7 +118,12 @@ const
   ACCENT_BORDER = TColor($00D6A778);
   STYLE_NAMES: array[TNicomeaStyle] of string = ('横スクロール', '縦スクロール', 'ページ切り替え');
   EFFECT_NAMES: array[TNicomeaEffect] of string = ('なし', 'フェード');
-  EFFECT_ROW_HEIGHT = 54;
+  SETTINGS_WIDTH = 752;
+  SETTINGS_HEIGHT = 160;
+  DEFAULT_CLIENT_WIDTH = 804;
+  DEFAULT_CLIENT_HEIGHT = 640;
+  MIN_FORM_WIDTH = SETTINGS_WIDTH + 40;
+  MIN_FORM_HEIGHT = 360;
 
 type
   TNicomeaDarkButton = class(TButton)
@@ -232,18 +243,18 @@ end;
 constructor TFormNicomeaSettings.Create(AOwner: TComponent);
 var
   SettingsPanel, PreviewPanel: TPanel;
-  SettingsScroll: TScrollBox;
   PreviewMenu: TPopupMenu;
   ResetItem: TMenuItem;
 begin
   inherited CreateNew(AOwner);
   Caption := 'ニコメアの設定';
   Position := poScreenCenter;
-  ClientWidth := 1120;
-  ClientHeight := 640 + EFFECT_ROW_HEIGHT;
-  Constraints.MinWidth := 830;
-  Constraints.MinHeight := 625;
+  ClientWidth := DEFAULT_CLIENT_WIDTH;
+  ClientHeight := DEFAULT_CLIENT_HEIGHT;
   Padding.SetBounds(12, 12, 12, 12);
+  // 手動配置とフォントを96 DPIで揃えてから、フォーム全体を拡大する。
+  Font.PixelsPerInch := USER_DEFAULT_SCREEN_DPI;
+  Font.IsDPIRelated := True;
   Font.Name := 'Yu Gothic UI';
   Font.Size := 10;
   StyleElements := [];
@@ -257,16 +268,16 @@ begin
   FDecorationRenderer := TNicomeaRenderer.Create;
   AddDialogButtons(Self);
 
-  SettingsScroll := TScrollBox.Create(Self);
-  SettingsScroll.Parent := Self;
-  SettingsScroll.Align := alRight;
-  SettingsScroll.Width := 360;
-  SettingsScroll.AlignWithMargins := True;
-  SettingsScroll.Margins.SetBounds(12, 0, 0, 0);
-  SettingsScroll.BorderStyle := bsNone;
-  SettingsScroll.Color := SYNC_MUSIC_STUDIO_DARK_PANEL_COLOR;
-  SettingsScroll.HorzScrollBar.Visible := False;
-  SettingsPanel := DarkPanel(SettingsScroll, alTop);
+  FSettingsScroll := TScrollBox.Create(Self);
+  FSettingsScroll.Parent := Self;
+  FSettingsScroll.Height := SETTINGS_HEIGHT;
+  FSettingsScroll.Align := alBottom;
+  FSettingsScroll.AlignWithMargins := True;
+  FSettingsScroll.Margins.SetBounds(0, 8, 0, 0);
+  FSettingsScroll.BorderStyle := bsNone;
+  FSettingsScroll.Color := SYNC_MUSIC_STUDIO_DARK_PANEL_COLOR;
+  SettingsPanel := DarkPanel(FSettingsScroll, alNone);
+  SettingsPanel.SetBounds(0, 0, SETTINGS_WIDTH, SETTINGS_HEIGHT);
   BuildControls(SettingsPanel);
 
   PreviewPanel := DarkPanel(Self, alClient);
@@ -298,6 +309,57 @@ begin
   FTimer.Enabled := False;
   FTimer.Interval := 33;
   FTimer.OnTimer := PreviewTick;
+
+  DisableAlign;
+  try
+    ScaleForPPI(CurrentPPI);
+    ClientWidth := ScaleValue(DEFAULT_CLIENT_WIDTH);
+    ClientHeight := ScaleValue(DEFAULT_CLIENT_HEIGHT);
+  finally
+    EnableAlign;
+  end;
+end;
+
+procedure TFormNicomeaSettings.FitToWorkArea;
+var
+  Area: TRect;
+  FitWidth, FitHeight: Integer;
+begin
+  Area := Monitor.WorkareaRect;
+  Constraints.MinWidth := Min(ScaleValue(MIN_FORM_WIDTH), Area.Width);
+  Constraints.MinHeight := Min(ScaleValue(MIN_FORM_HEIGHT), Area.Height);
+  if WindowState <> wsNormal then Exit;
+  FitWidth := Min(Width, Area.Width);
+  FitHeight := Min(Height, Area.Height);
+  SetBounds(EnsureRange(Left, Area.Left, Area.Right - FitWidth),
+    EnsureRange(Top, Area.Top, Area.Bottom - FitHeight), FitWidth, FitHeight);
+end;
+
+procedure TFormNicomeaSettings.DoShow;
+begin
+  FitToWorkArea;
+  inherited;
+end;
+
+procedure TFormNicomeaSettings.DoAfterMonitorDpiChanged(OldDPI, NewDPI: Integer);
+begin
+  inherited;
+  FitToWorkArea;
+end;
+
+procedure TFormNicomeaSettings.Resize;
+var
+  SettingsHeight: Integer;
+begin
+  if (FSettingsScroll <> nil) and not (csDestroying in ComponentState) then
+  begin
+    SettingsHeight := ScaleValue(SETTINGS_HEIGHT);
+    if ClientWidth - Padding.Left - Padding.Right < ScaleValue(SETTINGS_WIDTH) then
+      Inc(SettingsHeight, ScaleValue(20));
+    // 作業領域が狭い場合はプレビューの高さを確保し、設定側をスクロールする。
+    FSettingsScroll.Height := Min(SettingsHeight, Max(0, ClientHeight - ScaleValue(180)));
+  end;
+  inherited;
 end;
 
 destructor TFormNicomeaSettings.Destroy;
@@ -315,26 +377,33 @@ procedure TFormNicomeaSettings.BuildControls(Panel: TPanel);
 const
   ColorCaptions: array[TColorTarget] of string = ('文字', '縁', '影');
   ColorHints: array[TColorTarget] of string = ('文字の色', '縁取りの色', '影の色');
-  PickerLeft = 16;
-  PickerTop = 409 + EFFECT_ROW_HEIGHT;
-  PickerSize = 152;
-  PickerGap = 8;
-  HueWidth = 26;
-  HueLeft = PickerLeft + PickerSize + PickerGap;
+  MainLeft = 12;
+  TextLeft = 268;
+  ColorLeft = 528;
+  TopRow = 8;
+  MiddleRow = 56;
+  BottomRow = 104;
+  FieldOffset = 20;
+  FieldHeight = 26;
+  PickerTop = 44;
+  PickerSize = 100;
+  PickerGap = 6;
+  HueWidth = 18;
+  HueLeft = ColorLeft + PickerSize + PickerGap;
   SampleLeft = HueLeft + HueWidth + PickerGap;
-  SettingsRight = 342;
+  ColorRight = SETTINGS_WIDTH - 12;
 var
   Style: TNicomeaStyle;
   Kind: TNicomeaHistoryKind;
   Effect: TNicomeaEffect;
   Target: TColorTarget;
 
-  function Slider(const Text: string; X, Y, MinValue, MaxValue: Integer): TTrackBar;
+  function Slider(const Text: string; X, Y, Width, MinValue, MaxValue: Integer): TTrackBar;
   begin
     LabelAt(Panel, Text, X, Y);
     Result := TTrackBar.Create(Panel);
     Result.Parent := Panel;
-    Result.SetBounds(X, Y + 22, 155, 27);
+    Result.SetBounds(X, Y + FieldOffset, Width, FieldHeight);
     Result.Max := MaxValue;
     Result.Min := MinValue;
     Result.TickStyle := tsNone;
@@ -351,78 +420,75 @@ var
     LabelAt(Panel, Text, X, Y);
     Result := TComboBox.Create(Panel);
     Result.Parent := Panel;
-    Result.SetBounds(X, Y + 22, Width, 27);
+    Result.SetBounds(X, Y + FieldOffset, Width, FieldHeight);
     ApplySyncMusicStudioDarkComboBox(Result, DrawCombo);
   end;
 
 begin
-  Panel.Height := PickerTop + PickerSize + 12;
-  FStyle := Choice('表示スタイル', 16, 12, 155);
+  FStyle := Choice('表示スタイル', MainLeft, TopRow, 122);
   for Style := Low(TNicomeaStyle) to High(TNicomeaStyle) do FStyle.Items.Add(STYLE_NAMES[Style]);
   FStyle.OnChange := StyleChanged;
 
-  FKindSelector := Choice('表示対象', 187, 12, 155);
+  FKindSelector := Choice('表示対象', MainLeft + 130, TopRow, 110);
   for Kind := Low(TNicomeaHistoryKind) to High(TNicomeaHistoryKind) do
     FKindSelector.Items.Add(NICOMEA_KIND_NAMES[Kind]);
   FKindSelector.OnChange := KindChanged;
 
-  FEffect := Choice('演出', 16, 66, 326);
+  FEffect := Choice('演出', MainLeft, MiddleRow, 122);
   for Effect := Low(TNicomeaEffect) to High(TNicomeaEffect) do
     FEffect.Items.Add(EFFECT_NAMES[Effect]);
   FEffect.OnChange := ReadControls;
 
-  LabelAt(Panel, '書式（右クリックで項目を挿入）', 16, 66 + EFFECT_ROW_HEIGHT);
+  FSingleColumn := TSyncMusicStudioDarkCheckBox.Create(Panel);
+  FSingleColumn.Parent := Panel;
+  FSingleColumn.SetBounds(MainLeft + 130, MiddleRow + FieldOffset, 110, FieldHeight);
+  FSingleColumn.Caption := '1 列に並べる';
+  FSingleColumn.OnClick := ReadControls;
+
+  LabelAt(Panel, '書式（右クリックで挿入）', MainLeft, BottomRow);
   FFormat := TEdit.Create(Panel);
   FFormat.Parent := Panel;
-  FFormat.SetBounds(16, 88 + EFFECT_ROW_HEIGHT, 254, 27);
+  FFormat.SetBounds(MainLeft, BottomRow + FieldOffset, 176, FieldHeight);
   ApplySyncMusicStudioDarkEdit(FFormat);
   FFormat.PopupMenu := TPopupMenu.Create(FFormat);
   FFormat.OnChange := FormatChanged;
 
-  LabelAt(Panel, '区切り', 278, 66 + EFFECT_ROW_HEIGHT);
+  LabelAt(Panel, '区切り', MainLeft + 184, BottomRow);
   FSeparator := TEdit.Create(Panel);
   FSeparator.Parent := Panel;
-  FSeparator.SetBounds(278, 88 + EFFECT_ROW_HEIGHT, 64, 27);
+  FSeparator.SetBounds(MainLeft + 184, BottomRow + FieldOffset, 56, FieldHeight);
   ApplySyncMusicStudioDarkEdit(FSeparator);
   FSeparator.OnChange := ReadControls;
 
-  FFont := Choice('フォント', 16, 120 + EFFECT_ROW_HEIGHT, 326);
+  FFont := Choice('フォント', TextLeft, TopRow, 138);
+  FFont.DropDownWidth := 220;
   FFont.Items.Assign(Screen.Fonts);
   FFont.OnChange := ReadControls;
-  FSize := Slider('文字サイズ', 16, 174 + EFFECT_ROW_HEIGHT, 6, 256);
-  FSize.Width := 326;
+  FSize := Slider('文字サイズ', TextLeft + 146, TopRow, 98, 6, 256);
+  FSpacing := Slider('文字間隔', TextLeft, MiddleRow, 118, 0, 64);
+  FLineGap := Slider('行間', TextLeft + 126, MiddleRow, 118, 0, 128);
 
-  FBold := ButtonAt(Panel, 'B', 16, 230 + EFFECT_ROW_HEIGHT, 75, ToggleDecoration);
-  FItalic := ButtonAt(Panel, 'I', 100, 230 + EFFECT_ROW_HEIGHT, 75, ToggleDecoration);
-  FOutline := ButtonAt(Panel, '縁取り', 184, 230 + EFFECT_ROW_HEIGHT, 75, ToggleDecoration);
-  FShadow := ButtonAt(Panel, '影', 267, 230 + EFFECT_ROW_HEIGHT, 75, ToggleDecoration);
+  FBold := ButtonAt(Panel, 'B', TextLeft, BottomRow + 16, 55, ToggleDecoration);
+  FItalic := ButtonAt(Panel, 'I', TextLeft + 63, BottomRow + 16, 55, ToggleDecoration);
+  FOutline := ButtonAt(Panel, '縁取り', TextLeft + 126, BottomRow + 16, 55, ToggleDecoration);
+  FShadow := ButtonAt(Panel, '影', TextLeft + 189, BottomRow + 16, 55, ToggleDecoration);
   FBold.Font.Style := [fsBold];
   FItalic.Font.Style := [fsItalic];
-
-  FSpacing := Slider('文字間隔', 16, 265 + EFFECT_ROW_HEIGHT, 0, 64);
-  FLineGap := Slider('行間', 187, 265 + EFFECT_ROW_HEIGHT, 0, 128);
-  FMaxChars := Slider('最大文字数（左端で自動）', 16, 317 + EFFECT_ROW_HEIGHT, 0, 1000);
-
-  FSingleColumn := TSyncMusicStudioDarkCheckBox.Create(Panel);
-  FSingleColumn.Parent := Panel;
-  FSingleColumn.SetBounds(187, 341 + EFFECT_ROW_HEIGHT, 155, 24);
-  FSingleColumn.Caption := '1 列に並べる';
-  FSingleColumn.OnClick := ReadControls;
 
   for Target := Low(TColorTarget) to High(TColorTarget) do
   begin
     FColorButtons[Target] := ButtonAt(Panel, ColorCaptions[Target],
-      16 + Ord(Target) * 50, 371 + EFFECT_ROW_HEIGHT, 44, SelectColorTarget);
+      ColorLeft + Ord(Target) * 40, TopRow, 34, SelectColorTarget);
     FColorButtons[Target].Tag := Ord(Target);
     FColorButtons[Target].Hint := ColorHints[Target];
     FColorButtons[Target].ShowHint := True;
   end;
   FColorSwatch := DarkPanel(Panel, alNone);
-  FColorSwatch.SetBounds(166, 374 + EFFECT_ROW_HEIGHT, 176, 24);
+  FColorSwatch.SetBounds(ColorLeft + 120, TopRow + 3, ColorRight - ColorLeft - 120, 24);
 
   FColorArea := TColorPickerSVArea.Create(Panel);
   FColorArea.Parent := Panel;
-  FColorArea.SetBounds(PickerLeft, PickerTop, PickerSize, PickerSize);
+  FColorArea.SetBounds(ColorLeft, PickerTop, PickerSize, PickerSize);
   FColorArea.OnChange := ColorChanged;
 
   FHueBar := TColorPickerHueBar.Create(Panel);
@@ -432,7 +498,7 @@ begin
 
   FDecorationSample := TPaintBox.Create(Panel);
   FDecorationSample.Parent := Panel;
-  FDecorationSample.SetBounds(SampleLeft, PickerTop, SettingsRight - SampleLeft, PickerSize);
+  FDecorationSample.SetBounds(SampleLeft, PickerTop, ColorRight - SampleLeft, PickerSize);
   FDecorationSample.ShowHint := True;
   FDecorationSample.OnPaint := PaintDecorationSample;
   FDecorationSample.OnMouseDown := EditMouseDown;
@@ -575,7 +641,6 @@ begin
     FSize.Position := FLayout.FontSize;
     FSpacing.Position := FLayout.LetterSpacing;
     FLineGap.Position := FLayout.LineGap;
-    FMaxChars.Position := FLayout.MaxChars;
     FSingleColumn.Checked := FLayout.SingleColumn;
     FSingleColumn.Enabled := FLayout.Style <> nsHorizontal;
     TNicomeaDarkButton(FBold).FAccent := FLayout.Bold;
@@ -608,7 +673,6 @@ begin
   else if Sender = FSize then FLayout.FontSize := FSize.Position
   else if Sender = FSpacing then FLayout.LetterSpacing := FSpacing.Position
   else if Sender = FLineGap then FLayout.LineGap := FLineGap.Position
-  else if Sender = FMaxChars then FLayout.MaxChars := FMaxChars.Position
   else if Sender = FSeparator then FLayout.Separator := FSeparator.Text;
   FDirty := True;
   if Sender = FFont then InvalidateDecorationSample;

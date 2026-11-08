@@ -189,7 +189,7 @@ procedure ApplySyncMusicStudioDarkComboBox(ComboBox: TComboBox;
   DrawItemEvent: TDrawItemEvent);
 begin
   ComboBox.Style := csOwnerDrawFixed;
-  ComboBox.ItemHeight := MulDiv(16, ComboBox.CurrentPPI, 96);
+  ComboBox.ItemHeight := MulDiv(16, ComboBox.Font.PixelsPerInch, 96);
   ComboBox.Color := SYNC_MUSIC_STUDIO_DARK_CONTROL_COLOR;
   ComboBox.Font.Color := SYNC_MUSIC_STUDIO_DARK_TEXT_COLOR;
   ComboBox.StyleElements := ComboBox.StyleElements - [seClient];
